@@ -24,3 +24,14 @@ data packet, encrypted with the message's session key. The data packet consists 
 number of bytes followed by a 64-byte Ed25516 signature of the encrypted header, encrypted keys, and
 plaintext. Finally, an arbitrary number of random bytes may be added to the end of the message as 
 padding.
+
+## What's the point
+
+1. Veil messages can be read by all of the intended recipients. None of the recipients can modify
+   the message or forge additional messages.
+2. Veil messages are tamper-proof. If a single bit of the entire message is changed, none of the
+   message can be decrypted.
+3. Veil messages are non-repudiable.
+4. Veil messages are indistinguishable from random noise, revealing no metadata about recipients'
+   identities, number of recipients, etc.
+5. Veil messages can be padded, obscuring a message's actual length.   
