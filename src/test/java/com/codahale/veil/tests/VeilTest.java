@@ -14,40 +14,42 @@
 
 package com.codahale.veil.tests;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.codahale.veil.Veil;
 import com.codahale.xsalsa20poly1305.SimpleBox;
+import java.util.Arrays;
+import java.util.List;
+import okio.ByteString;
 import org.junit.jupiter.api.Test;
 
 class VeilTest {
 
   @Test
   void roundTrip() throws Exception {
-    final byte[] privateKeyA = SimpleBox.generatePrivateKey();
-    final byte[] publicKeyA = SimpleBox.generatePublicKey(privateKeyA);
-    final byte[] privateKeyB = SimpleBox.generatePrivateKey();
-    final byte[] publicKeyB = SimpleBox.generatePublicKey(privateKeyB);
-    final byte[] privateKeyC = SimpleBox.generatePrivateKey();
-    final byte[] publicKeyC = SimpleBox.generatePublicKey(privateKeyC);
+    final ByteString privateKeyA = SimpleBox.generatePrivateKey();
+    final ByteString publicKeyA = SimpleBox.generatePublicKey(privateKeyA);
+    final ByteString privateKeyB = SimpleBox.generatePrivateKey();
+    final ByteString publicKeyB = SimpleBox.generatePublicKey(privateKeyB);
+    final ByteString privateKeyC = SimpleBox.generatePrivateKey();
+    final ByteString publicKeyC = SimpleBox.generatePublicKey(privateKeyC);
 
-    final byte[] plaintext = "this is super cool".getBytes();
+    final ByteString plaintext = ByteString.encodeUtf8("this is super cool");
 
-    final byte[][] keys = {publicKeyA, publicKeyB, publicKeyC};
-    final byte[] c1 = Veil.encrypt(privateKeyA, keys, plaintext, 1000);
-    final byte[] c2 = Veil.encrypt(privateKeyA, keys, plaintext, 2000);
+    final List<ByteString> keys = Arrays.asList(publicKeyA, publicKeyB, publicKeyC);
+    final ByteString c1 = Veil.encrypt(privateKeyA, keys, plaintext, 1000);
+    final ByteString c2 = Veil.encrypt(privateKeyA, keys, plaintext, 2000);
 
-    assertEquals(1386, c1.length);
-    assertEquals(2386, c2.length);
+    assertEquals(1386, c1.size());
+    assertEquals(2386, c2.size());
 
-    final byte[] p1 = Veil.decrypt(publicKeyA, privateKeyA, c1);
-    assertArrayEquals(plaintext, p1);
+    final ByteString p1 = Veil.decrypt(publicKeyA, privateKeyA, c1);
+    assertEquals(plaintext, p1);
 
-    final byte[] p2 = Veil.decrypt(publicKeyA, privateKeyB, c1);
-    assertArrayEquals(plaintext, p2);
+    final ByteString p2 = Veil.decrypt(publicKeyA, privateKeyB, c1);
+    assertEquals(plaintext, p2);
 
-    final byte[] p3 = Veil.decrypt(publicKeyA, privateKeyC, c1);
-    assertArrayEquals(plaintext, p3);
+    final ByteString p3 = Veil.decrypt(publicKeyA, privateKeyC, c1);
+    assertEquals(plaintext, p3);
   }
 }
