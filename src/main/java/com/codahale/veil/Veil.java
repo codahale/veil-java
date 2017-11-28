@@ -30,17 +30,16 @@ public abstract class Veil {
   private static final int KEY_LEN = 32;
   private static final int SIG_LEN = 64;
 
-  public static ByteString encrypt(ByteString privateKey, Collection<ByteString> publicKeys,
-      ByteString plaintext, int padding) {
+  public static ByteString encrypt(
+      ByteString privateKey, Collection<ByteString> publicKeys, ByteString plaintext, int padding) {
     final ByteString sk = SimpleBox.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
     // encode and encrypt header
     final int dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
     final int dataLength = plaintext.size() + SIG_LEN;
-    final ByteString header = session.seal(new Buffer().writeInt(dataOffset)
-                                                       .writeInt(dataLength)
-                                                       .readByteString());
+    final ByteString header =
+        session.seal(new Buffer().writeInt(dataOffset).writeInt(dataLength).readByteString());
 
     // encrypt a copy of the session key with each public key
     final Buffer keysBuf = new Buffer();
@@ -51,13 +50,11 @@ public abstract class Veil {
     final ByteString keys = keysBuf.readByteString();
 
     // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
-    final ByteString signed = new Buffer().write(header)
-                                          .write(keys)
-                                          .write(plaintext)
-                                          .readByteString();
-    final byte[] sig = Curve25519.getInstance(Curve25519.BEST)
-                                 .calculateSignature(privateKey.toByteArray(),
-                                     signed.toByteArray());
+    final ByteString signed =
+        new Buffer().write(header).write(keys).write(plaintext).readByteString();
+    final byte[] sig =
+        Curve25519.getInstance(Curve25519.BEST)
+            .calculateSignature(privateKey.toByteArray(), signed.toByteArray());
 
     // encrypt the plaintext and the signature
     final ByteString data = new Buffer().write(sig).write(plaintext).readByteString();
@@ -74,8 +71,8 @@ public abstract class Veil {
     return new Buffer().write(header).write(keys).write(encData).write(pad).readByteString();
   }
 
-  public static ByteString decrypt(ByteString publicKey, ByteString privateKey,
-      ByteString ciphertext) {
+  public static ByteString decrypt(
+      ByteString publicKey, ByteString privateKey, ByteString ciphertext) {
     try {
       final SimpleBox shared = new SimpleBox(publicKey, privateKey);
       final Buffer in = new Buffer().write(ciphertext);
@@ -95,8 +92,8 @@ public abstract class Veil {
       final SimpleBox session = new SimpleBox(sk.orElseThrow(IllegalArgumentException::new));
 
       // decrypt the header
-      final Buffer header = new Buffer()
-          .write(session.open(encHeader).orElseThrow(IllegalArgumentException::new));
+      final Buffer header =
+          new Buffer().write(session.open(encHeader).orElseThrow(IllegalArgumentException::new));
       final int dataOffset = header.readInt();
       final int dataLength = header.readInt();
 
@@ -105,18 +102,19 @@ public abstract class Veil {
 
       // decrypt the data and signature
       final ByteString encData = in.readByteString(dataLength + OVERHEAD);
-      final Buffer data = new Buffer()
-          .write(session.open(encData).orElseThrow(IllegalArgumentException::new));
+      final Buffer data =
+          new Buffer().write(session.open(encData).orElseThrow(IllegalArgumentException::new));
       final ByteString sig = data.readByteString(SIG_LEN);
       final ByteString plaintext = data.readByteString();
 
       // rebuild the signed data and verify the signature
-      final ByteString signed = new Buffer()
-          .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
-          .write(plaintext).readByteString();
+      final ByteString signed =
+          new Buffer()
+              .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
+              .write(plaintext)
+              .readByteString();
       if (!Curve25519.getInstance(Curve25519.BEST)
-                     .verifySignature(publicKey.toByteArray(), signed.toByteArray(),
-                         sig.toByteArray())) {
+          .verifySignature(publicKey.toByteArray(), signed.toByteArray(), sig.toByteArray())) {
         throw new IllegalArgumentException();
       }
 
