@@ -14,19 +14,19 @@
 
 package com.codahale.veil.tests;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.codahale.veil.Veil;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.util.Arrays;
 import java.util.List;
 import okio.ByteString;
-import org.junit.jupiter.api.Test;
+import org.junit.Test;
 
-class VeilTest {
+public class VeilTest {
 
   @Test
-  void roundTrip() throws Exception {
+  public void roundTrip() {
     final ByteString privateKeyA = SimpleBox.generatePrivateKey();
     final ByteString publicKeyA = SimpleBox.generatePublicKey(privateKeyA);
     final ByteString privateKeyB = SimpleBox.generatePrivateKey();
@@ -40,16 +40,16 @@ class VeilTest {
     final ByteString c1 = Veil.encrypt(privateKeyA, keys, plaintext, 1000);
     final ByteString c2 = Veil.encrypt(privateKeyA, keys, plaintext, 2000);
 
-    assertEquals(1386, c1.size());
-    assertEquals(2386, c2.size());
+    assertThat(c1.size()).isEqualTo(1386);
+    assertThat(c2.size()).isEqualTo(2386);
 
     final ByteString p1 = Veil.decrypt(publicKeyA, privateKeyA, c1);
-    assertEquals(plaintext, p1);
+    assertThat(p1).isEqualTo(plaintext);
 
     final ByteString p2 = Veil.decrypt(publicKeyA, privateKeyB, c1);
-    assertEquals(plaintext, p2);
+    assertThat(p2).isEqualTo(plaintext);
 
     final ByteString p3 = Veil.decrypt(publicKeyA, privateKeyC, c1);
-    assertEquals(plaintext, p3);
+    assertThat(p3).isEqualTo(plaintext);
   }
 }

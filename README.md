@@ -29,8 +29,8 @@ padding.
 
 1. Veil messages can be read by all of the intended recipients. None of the recipients can modify
    the message or forge additional messages.
-2. Veil messages are tamper-proof. If a single bit of the entire message is changed, none of the
-   message can be decrypted.
+2. Veil messages are tamper-proof. If a single bit of the entire message is changed, all of the
+   recipients will know.
 3. Veil messages are non-repudiable.
 4. Veil messages are indistinguishable from random noise, revealing no metadata about recipients'
    identities, number of recipients, etc.
