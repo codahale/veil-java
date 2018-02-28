@@ -17,12 +17,22 @@ package com.codahale.veil;
 
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
+import java.security.InvalidKeyException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.SignatureException;
 import java.util.Collection;
 import java.util.Optional;
+import net.i2p.crypto.eddsa.EdDSAEngine;
+import net.i2p.crypto.eddsa.EdDSAPrivateKey;
+import net.i2p.crypto.eddsa.EdDSAPublicKey;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveSpec;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
+import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
 import okio.Buffer;
 import okio.ByteString;
-import org.whispersystems.curve25519.Curve25519;
 
 public abstract class Veil {
 
@@ -30,9 +40,11 @@ public abstract class Veil {
   private static final int HEADER_LEN = 8;
   private static final int KEY_LEN = 32;
   private static final int SIG_LEN = 64;
+  private static final EdDSANamedCurveSpec ED_25519 = EdDSANamedCurveTable.getByName("Ed25519");
 
   public static ByteString encrypt(
-      ByteString privateKey, Collection<ByteString> publicKeys, ByteString plaintext, int padding) {
+      PrivateKey privateKey, Collection<PublicKey> publicKeys, ByteString plaintext, int padding)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
     final ByteString sk = SimpleBox.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
@@ -44,8 +56,8 @@ public abstract class Veil {
 
     // encrypt a copy of the session key with each public key
     final Buffer keysBuf = new Buffer();
-    for (ByteString pk : publicKeys) {
-      final SimpleBox shared = new SimpleBox(pk, privateKey);
+    for (PublicKey pk : publicKeys) {
+      final SimpleBox shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
       keysBuf.write(shared.seal(sk));
     }
     final ByteString keys = keysBuf.readByteString();
@@ -53,9 +65,7 @@ public abstract class Veil {
     // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
     final ByteString signed =
         new Buffer().write(header).write(keys).write(plaintext).readByteString();
-    final byte[] sig =
-        Curve25519.getInstance(Curve25519.BEST)
-            .calculateSignature(privateKey.toByteArray(), signed.toByteArray());
+    final byte[] sig = sign(privateKey, signed);
 
     // encrypt the plaintext and the signature
     final ByteString data = new Buffer().write(sig).write(plaintext).readByteString();
@@ -73,9 +83,10 @@ public abstract class Veil {
   }
 
   public static ByteString decrypt(
-      ByteString publicKey, ByteString privateKey, ByteString ciphertext) {
+      PrivateKey privateKey, PublicKey publicKey, ByteString ciphertext)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
     try {
-      final SimpleBox shared = new SimpleBox(publicKey, privateKey);
+      final SimpleBox shared = new SimpleBox(publicKey.encryptionKey(), privateKey.decryptionKey());
       final Buffer in = new Buffer().write(ciphertext);
 
       // copy the fixed-length header
@@ -114,8 +125,7 @@ public abstract class Veil {
               .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
               .write(plaintext)
               .readByteString();
-      if (!Curve25519.getInstance(Curve25519.BEST)
-          .verifySignature(publicKey.toByteArray(), signed.toByteArray(), sig.toByteArray())) {
+      if (!verify(publicKey, signed, sig)) {
         throw new IllegalArgumentException();
       }
 
@@ -124,5 +134,27 @@ public abstract class Veil {
     } catch (IOException e) {
       throw new IllegalArgumentException();
     }
+  }
+
+  private static byte[] sign(PrivateKey privateKey, ByteString signed)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+    final EdDSAEngine signature =
+        new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
+    signature.initSign(
+        new EdDSAPrivateKey(
+            new EdDSAPrivateKeySpec(ED_25519, privateKey.signingKey().toByteArray())));
+    signature.update(signed.toByteArray());
+    return signature.sign();
+  }
+
+  private static boolean verify(PublicKey publicKey, ByteString signed, ByteString sig)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+    final EdDSAEngine signature =
+        new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
+    signature.initVerify(
+        new EdDSAPublicKey(
+            new EdDSAPublicKeySpec(publicKey.verificationKey().toByteArray(), ED_25519)));
+    signature.update(signed.toByteArray());
+    return signature.verify(sig.toByteArray());
   }
 }
