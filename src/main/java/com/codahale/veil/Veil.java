@@ -15,6 +15,7 @@
  */
 package com.codahale.veil;
 
+import com.codahale.xsalsa20poly1305.SecretBox;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
 import java.security.MessageDigest;
@@ -23,7 +24,8 @@ import java.util.Collection;
 import java.util.Optional;
 import okio.Buffer;
 import okio.ByteString;
-import org.bouncycastle.crypto.Digest;
+import org.bouncycastle.crypto.macs.HMac;
+import org.bouncycastle.crypto.params.KeyParameter;
 import org.bouncycastle.crypto.util.DigestFactory;
 
 public class Veil {
@@ -31,7 +33,7 @@ public class Veil {
   private static final int OVERHEAD = 40;
   private static final int HEADER_LEN = 8;
   private static final int KEY_LEN = 32;
-  private static final int HASH_LEN = 32;
+  private static final int MAC_LEN = 32;
 
   private final ByteString privateKey;
 
@@ -43,20 +45,19 @@ public class Veil {
     final ByteString sk = SimpleBox.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
-    // hash the plaintext
-    final ByteString hash = hash(plaintext);
-
     // encode and encrypt header
-    final int dataOffset = publicKeys.size() * (KEY_LEN + HASH_LEN + OVERHEAD);
+    final int dataOffset = publicKeys.size() * (KEY_LEN + MAC_LEN + OVERHEAD);
     final int dataLength = plaintext.size();
     final ByteString header =
         session.seal(new Buffer().writeInt(dataOffset).writeInt(dataLength).readByteString());
 
-    // encrypt a copy of the session key and plaintext hash with each public key
+    // encrypt a copy of the session key and plaintext mac with each public key
     final Buffer keysBuf = new Buffer();
     for (ByteString pk : publicKeys) {
-      final SimpleBox shared = new SimpleBox(pk, privateKey);
-      keysBuf.write(shared.seal(new Buffer().write(sk).write(hash).readByteString()));
+      final ByteString sharedKey = SecretBox.sharedSecret(pk, privateKey);
+      final SimpleBox shared = new SimpleBox(sharedKey);
+      final ByteString mac = hmac(sharedKey, plaintext);
+      keysBuf.write(shared.seal(new Buffer().write(sk).write(mac).readByteString()));
     }
     final ByteString keys = keysBuf.readByteString();
 
@@ -76,16 +77,17 @@ public class Veil {
 
   public Optional<ByteString> decrypt( ByteString publicKey, ByteString ciphertext) {
     try {
-      final SimpleBox shared = new SimpleBox(publicKey, privateKey);
+      final ByteString sharedKey = SecretBox.sharedSecret(publicKey, privateKey);
+      final SimpleBox shared = new SimpleBox(sharedKey);
       final Buffer in = new Buffer().write(ciphertext);
 
       // copy the fixed-length header
       final ByteString encHeader = in.readByteString(HEADER_LEN + OVERHEAD);
 
-      // iterate through key+hash-sized chunks, trying to decrypt them
+      // iterate through key+mac-sized chunks, trying to decrypt them
       ByteString packet = null;
       while (in.size() > KEY_LEN + OVERHEAD) {
-        final ByteString encPacket = in.readByteString(KEY_LEN + HASH_LEN + OVERHEAD);
+        final ByteString encPacket = in.readByteString(KEY_LEN + MAC_LEN + OVERHEAD);
         final Optional<ByteString> p = shared.open(encPacket);
         if (p.isPresent()) {
           packet = p.get();
@@ -96,7 +98,7 @@ public class Veil {
         return Optional.empty();
       }
       final ByteString sk = packet.substring(0, KEY_LEN);
-      final ByteString hash = packet.substring(KEY_LEN);
+      final ByteString mac = packet.substring(KEY_LEN);
 
       // decrypt the header
       final SimpleBox session = new SimpleBox(sk);
@@ -118,8 +120,9 @@ public class Veil {
         return Optional.empty();
       }
 
-      // check the hash
-      if (!MessageDigest.isEqual(hash.toByteArray(), hash(plaintext.get()).toByteArray())) {
+      // check the mac
+      final ByteString candidateMac = hmac(sharedKey, plaintext.get());
+      if (!MessageDigest.isEqual(mac.toByteArray(), candidateMac.toByteArray())) {
         throw new IllegalArgumentException();
       }
 
@@ -130,11 +133,12 @@ public class Veil {
     }
   }
 
-  private static ByteString hash(ByteString m) {
-    final byte[] h = new byte[HASH_LEN];
-    final Digest d = DigestFactory.createSHA512_256();
-    d.update(m.toByteArray(), 0, m.size());
-    d.doFinal(h, 0);
+  private static ByteString hmac(ByteString k, ByteString m) {
+    final HMac hmac = new HMac(DigestFactory.createSHA512_256());
+    hmac.init(new KeyParameter(k.toByteArray()));
+    hmac.update(m.toByteArray(), 0, m.size());
+    final byte[] h = new byte[MAC_LEN];
+    hmac.doFinal(h, 0);
     return ByteString.of(h);
   }
 }
