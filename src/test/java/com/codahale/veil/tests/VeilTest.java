@@ -21,6 +21,7 @@ import com.codahale.veil.Veil;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import okio.ByteString;
 import org.junit.Test;
 
@@ -40,18 +41,18 @@ public class VeilTest {
     final ByteString plaintext = ByteString.encodeUtf8("this is super cool");
 
     final List<ByteString> keys = Arrays.asList(a, b, c);
-    final ByteString c1 = Veil.encrypt(A, keys, plaintext, 1000);
-    final ByteString c2 = Veil.encrypt(B, keys, plaintext, 2000);
+    final ByteString c1 = new Veil(A).encrypt(keys, plaintext, 1000);
+    final ByteString c2 = new Veil(B).encrypt(keys, plaintext, 2000);
 
     assertThat(c2.size() - c1.size()).isEqualTo(1000);
 
-    final ByteString p1 = Veil.decrypt(A, a, c1);
-    assertThat(p1).isEqualTo(plaintext);
+    final Optional<ByteString> p1 = new Veil(A).decrypt(a, c1);
+    assertThat(p1).contains(plaintext);
 
-    final ByteString p2 = Veil.decrypt(B, a, c1);
-    assertThat(p2).isEqualTo(plaintext);
+    final Optional<ByteString> p2 = new Veil(B).decrypt(a, c1);
+    assertThat(p2).contains(plaintext);
 
-    final ByteString p3 = Veil.decrypt(C, a, c1);
-    assertThat(p3).isEqualTo(plaintext);
+    final Optional<ByteString> p3 = new Veil(C).decrypt(a, c1);
+    assertThat(p3).contains(plaintext);
   }
 }
