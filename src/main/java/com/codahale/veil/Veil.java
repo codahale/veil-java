@@ -17,20 +17,10 @@ package com.codahale.veil;
 
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
-import java.security.InvalidKeyException;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.security.SignatureException;
 import java.util.Collection;
 import java.util.Optional;
-import net.i2p.crypto.eddsa.EdDSAEngine;
-import net.i2p.crypto.eddsa.EdDSAPrivateKey;
-import net.i2p.crypto.eddsa.EdDSAPublicKey;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveSpec;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
-import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
-import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
 import okio.Buffer;
 import okio.ByteString;
 
@@ -39,37 +29,32 @@ public abstract class Veil {
   private static final int OVERHEAD = 40;
   private static final int HEADER_LEN = 8;
   private static final int KEY_LEN = 32;
-  private static final int SIG_LEN = 64;
-  private static final EdDSANamedCurveSpec ED_25519 = EdDSANamedCurveTable.getByName("Ed25519");
+  private static final int HASH_LEN = 64;
 
   public static ByteString encrypt(
-      PrivateKey privateKey, Collection<PublicKey> publicKeys, ByteString plaintext, int padding)
-      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+      ByteString privateKey, Collection<ByteString> publicKeys, ByteString plaintext, int padding) {
     final ByteString sk = SimpleBox.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
+    // hash the plaintext
+    final ByteString hash = plaintext.sha512().substring(0, HASH_LEN);
+
     // encode and encrypt header
-    final int dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
-    final int dataLength = plaintext.size() + SIG_LEN;
+    final int dataOffset = publicKeys.size() * (KEY_LEN + HASH_LEN + OVERHEAD);
+    final int dataLength = plaintext.size();
     final ByteString header =
         session.seal(new Buffer().writeInt(dataOffset).writeInt(dataLength).readByteString());
 
-    // encrypt a copy of the session key with each public key
+    // encrypt a copy of the session key and plaintext hash with each public key
     final Buffer keysBuf = new Buffer();
-    for (PublicKey pk : publicKeys) {
-      final SimpleBox shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
-      keysBuf.write(shared.seal(sk));
+    for (ByteString pk : publicKeys) {
+      final SimpleBox shared = new SimpleBox(pk, privateKey);
+      keysBuf.write(shared.seal(new Buffer().write(sk).write(hash).readByteString()));
     }
     final ByteString keys = keysBuf.readByteString();
 
-    // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
-    final ByteString signed =
-        new Buffer().write(header).write(keys).write(plaintext).readByteString();
-    final byte[] sig = sign(privateKey, signed);
-
-    // encrypt the plaintext and the signature
-    final ByteString data = new Buffer().write(sig).write(plaintext).readByteString();
-    final ByteString encData = session.seal(data);
+    // encrypt the plaintext
+    final ByteString encData = session.seal(plaintext);
 
     // generate random padding
     final byte[] pad = new byte[padding];
@@ -83,25 +68,30 @@ public abstract class Veil {
   }
 
   public static ByteString decrypt(
-      PrivateKey privateKey, PublicKey publicKey, ByteString ciphertext)
-      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+      ByteString privateKey, ByteString publicKey, ByteString ciphertext) {
     try {
-      final SimpleBox shared = new SimpleBox(publicKey.encryptionKey(), privateKey.decryptionKey());
+      final SimpleBox shared = new SimpleBox(publicKey, privateKey);
       final Buffer in = new Buffer().write(ciphertext);
 
       // copy the fixed-length header
       final ByteString encHeader = in.readByteString(HEADER_LEN + OVERHEAD);
 
-      // iterate through key-sized chunks, trying to decrypt them
-      Optional<ByteString> sk = Optional.empty();
+      // iterate through key+hash-sized chunks, trying to decrypt them
+      ByteString sk = null;
+      ByteString hash = null;
       while (in.size() > KEY_LEN + OVERHEAD) {
-        final Optional<ByteString> result = shared.open(in.readByteString(KEY_LEN + OVERHEAD));
+        final Optional<ByteString> result =
+            shared.open(in.readByteString(KEY_LEN + HASH_LEN + OVERHEAD));
         if (result.isPresent()) {
-          sk = result;
+          sk = result.get().substring(0, KEY_LEN);
+          hash = result.get().substring(KEY_LEN);
           break;
         }
       }
-      final SimpleBox session = new SimpleBox(sk.orElseThrow(IllegalArgumentException::new));
+      if ((sk == null) || (hash == null)) {
+        throw new IllegalArgumentException();
+      }
+      final SimpleBox session = new SimpleBox(sk);
 
       // decrypt the header
       final Buffer header =
@@ -112,49 +102,17 @@ public abstract class Veil {
       // skip the other keys
       in.skip((dataOffset + HEADER_LEN + OVERHEAD) - (ciphertext.size() - in.size()));
 
-      // decrypt the data and signature
+      // decrypt the data
       final ByteString encData = in.readByteString(dataLength + OVERHEAD);
-      final Buffer data =
-          new Buffer().write(session.open(encData).orElseThrow(IllegalArgumentException::new));
-      final ByteString sig = data.readByteString(SIG_LEN);
-      final ByteString plaintext = data.readByteString();
+      final ByteString plaintext = session.open(encData).orElseThrow(IllegalArgumentException::new);
 
-      // rebuild the signed data and verify the signature
-      final ByteString signed =
-          new Buffer()
-              .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
-              .write(plaintext)
-              .readByteString();
-      if (!verify(publicKey, signed, sig)) {
+      // check the hash
+      if (!MessageDigest.isEqual(hash.toByteArray(), plaintext.sha512().toByteArray())) {
         throw new IllegalArgumentException();
       }
-
-      // return the plaintext
       return plaintext;
     } catch (IOException e) {
       throw new IllegalArgumentException();
     }
-  }
-
-  private static byte[] sign(PrivateKey privateKey, ByteString signed)
-      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-    final EdDSAEngine signature =
-        new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
-    signature.initSign(
-        new EdDSAPrivateKey(
-            new EdDSAPrivateKeySpec(ED_25519, privateKey.signingKey().toByteArray())));
-    signature.update(signed.toByteArray());
-    return signature.sign();
-  }
-
-  private static boolean verify(PublicKey publicKey, ByteString signed, ByteString sig)
-      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
-    final EdDSAEngine signature =
-        new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
-    signature.initVerify(
-        new EdDSAPublicKey(
-            new EdDSAPublicKeySpec(publicKey.verificationKey().toByteArray(), ED_25519)));
-    signature.update(signed.toByteArray());
-    return signature.verify(sig.toByteArray());
   }
 }

@@ -17,13 +17,8 @@ package com.codahale.veil.tests;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.codahale.veil.PrivateKey;
-import com.codahale.veil.PublicKey;
 import com.codahale.veil.Veil;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.SignatureException;
+import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.util.Arrays;
 import java.util.List;
 import okio.ByteString;
@@ -32,29 +27,31 @@ import org.junit.Test;
 public class VeilTest {
 
   @Test
-  public void roundTrip()
-      throws InvalidAlgorithmParameterException, NoSuchAlgorithmException, InvalidKeyException,
-          SignatureException {
-    final PrivateKey a = PrivateKey.generate();
-    final PrivateKey b = PrivateKey.generate();
-    final PrivateKey c = PrivateKey.generate();
+  public void roundTrip() {
+    final ByteString A = SimpleBox.generatePrivateKey();
+    final ByteString a = SimpleBox.generatePublicKey(A);
+
+    final ByteString B = SimpleBox.generatePrivateKey();
+    final ByteString b = SimpleBox.generatePublicKey(B);
+
+    final ByteString C = SimpleBox.generatePrivateKey();
+    final ByteString c = SimpleBox.generatePublicKey(C);
 
     final ByteString plaintext = ByteString.encodeUtf8("this is super cool");
 
-    final List<PublicKey> keys = Arrays.asList(a.publicKey(), b.publicKey(), c.publicKey());
-    final ByteString c1 = Veil.encrypt(a, keys, plaintext, 1000);
-    final ByteString c2 = Veil.encrypt(b, keys, plaintext, 2000);
+    final List<ByteString> keys = Arrays.asList(a, b, c);
+    final ByteString c1 = Veil.encrypt(A, keys, plaintext, 1000);
+    final ByteString c2 = Veil.encrypt(B, keys, plaintext, 2000);
 
-    assertThat(c1.size()).isEqualTo(1386);
-    assertThat(c2.size()).isEqualTo(2386);
+    assertThat(c2.size() - c1.size()).isEqualTo(1000);
 
-    final ByteString p1 = Veil.decrypt(a, a.publicKey(), c1);
+    final ByteString p1 = Veil.decrypt(A, a, c1);
     assertThat(p1).isEqualTo(plaintext);
 
-    final ByteString p2 = Veil.decrypt(b, a.publicKey(), c1);
+    final ByteString p2 = Veil.decrypt(B, a, c1);
     assertThat(p2).isEqualTo(plaintext);
 
-    final ByteString p3 = Veil.decrypt(c, a.publicKey(), c1);
+    final ByteString p3 = Veil.decrypt(C, a, c1);
     assertThat(p3).isEqualTo(plaintext);
   }
 }
