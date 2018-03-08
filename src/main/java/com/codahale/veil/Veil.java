@@ -48,6 +48,13 @@ public abstract class Veil {
     final ByteString sk = SimpleBox.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
+    // generate random padding
+    final byte[] pad = new byte[padding];
+    if (padding > 0) {
+      final SecureRandom r = new SecureRandom();
+      r.nextBytes(pad);
+    }
+
     // encode and encrypt header
     final int dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
     final int dataLength = plaintext.size() + SIG_LEN;
@@ -64,19 +71,12 @@ public abstract class Veil {
 
     // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
     final ByteString signed =
-        new Buffer().write(header).write(keys).write(plaintext).readByteString();
+        new Buffer().write(header).write(keys).write(plaintext).write(pad).readByteString();
     final byte[] sig = sign(privateKey, signed);
 
     // encrypt the plaintext and the signature
     final ByteString data = new Buffer().write(sig).write(plaintext).readByteString();
     final ByteString encData = session.seal(data);
-
-    // generate random padding
-    final byte[] pad = new byte[padding];
-    if (padding > 0) {
-      final SecureRandom r = new SecureRandom();
-      r.nextBytes(pad);
-    }
 
     // return the encrypted header, the encrypted keys, and the encrypted plaintext and signature
     return new Buffer().write(header).write(keys).write(encData).write(pad).readByteString();
@@ -114,6 +114,7 @@ public abstract class Veil {
 
       // decrypt the data and signature
       final ByteString encData = in.readByteString(dataLength + OVERHEAD);
+      final ByteString padding = in.readByteString();
       final Buffer data =
           new Buffer().write(session.open(encData).orElseThrow(IllegalArgumentException::new));
       final ByteString sig = data.readByteString(SIG_LEN);
@@ -124,6 +125,7 @@ public abstract class Veil {
           new Buffer()
               .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
               .write(plaintext)
+              .write(padding)
               .readByteString();
       if (!verify(publicKey, signed, sig)) {
         throw new IllegalArgumentException();
