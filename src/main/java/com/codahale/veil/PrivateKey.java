@@ -29,14 +29,18 @@ import okio.ByteString;
 
 @AutoValue
 public abstract class PrivateKey {
-  public static PrivateKey generate() throws InvalidAlgorithmParameterException {
+  public static PrivateKey generate() {
     final ByteString decryptionKey = SimpleBox.generatePrivateKey();
     final ByteString encryptionKey = SimpleBox.generatePublicKey(decryptionKey);
 
     final EdDSANamedCurveSpec spec = EdDSANamedCurveTable.getByName("Ed25519");
     final KeyPairGenerator generator = new KeyPairGenerator();
     final SecureRandom random = new SecureRandom();
-    generator.initialize(spec, random);
+    try {
+      generator.initialize(spec, random);
+    } catch (InvalidAlgorithmParameterException e) {
+      throw new RuntimeException(e);
+    }
     final KeyPair keyPair = generator.generateKeyPair();
 
     final EdDSAPrivateKey signingKey = (EdDSAPrivateKey) keyPair.getPrivate();
