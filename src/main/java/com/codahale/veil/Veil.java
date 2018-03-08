@@ -18,8 +18,6 @@ package com.codahale.veil;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
 import java.security.InvalidKeyException;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.SignatureException;
 import java.util.Collection;
@@ -150,28 +148,26 @@ public class Veil {
 
   private byte[] sign(ByteString signed) {
     try {
-      final EdDSAEngine signature =
-          new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
+      final EdDSAEngine signature = new EdDSAEngine();
       signature.initSign(
           new EdDSAPrivateKey(
               new EdDSAPrivateKeySpec(ED_25519, privateKey.signingKey().toByteArray())));
       signature.update(signed.toByteArray());
       return signature.sign();
-    } catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
+    } catch (InvalidKeyException | SignatureException e) {
       throw new RuntimeException(e);
     }
   }
 
   private boolean verify(PublicKey publicKey, ByteString signed, ByteString sig) {
     try {
-      final EdDSAEngine signature =
-          new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
+      final EdDSAEngine signature = new EdDSAEngine();
       signature.initVerify(
           new EdDSAPublicKey(
               new EdDSAPublicKeySpec(publicKey.verificationKey().toByteArray(), ED_25519)));
       signature.update(signed.toByteArray());
       return signature.verify(sig.toByteArray());
-    } catch (NoSuchAlgorithmException | InvalidKeyException | SignatureException e) {
+    } catch (InvalidKeyException | SignatureException e) {
       throw new RuntimeException(e);
     }
   }
