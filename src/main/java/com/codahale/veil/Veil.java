@@ -15,54 +15,61 @@
  */
 package com.codahale.veil;
 
-import com.codahale.xsalsa20poly1305.SecretBox;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
+import java.security.InvalidKeyException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.security.SignatureException;
 import java.util.Collection;
 import java.util.Optional;
+import net.i2p.crypto.eddsa.EdDSAEngine;
+import net.i2p.crypto.eddsa.EdDSAPrivateKey;
+import net.i2p.crypto.eddsa.EdDSAPublicKey;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveSpec;
+import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
+import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
+import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
 import okio.Buffer;
 import okio.ByteString;
-import org.bouncycastle.crypto.macs.HMac;
-import org.bouncycastle.crypto.params.KeyParameter;
-import org.bouncycastle.crypto.util.DigestFactory;
 
-public class Veil {
+public abstract class Veil {
 
   private static final int OVERHEAD = 40;
   private static final int HEADER_LEN = 8;
   private static final int KEY_LEN = 32;
-  private static final int MAC_LEN = 32;
+  private static final int SIG_LEN = 64;
+  private static final EdDSANamedCurveSpec ED_25519 = EdDSANamedCurveTable.getByName("Ed25519");
 
-  private final ByteString privateKey;
-
-  public Veil(ByteString privateKey) {
-    this.privateKey = privateKey;
-  }
-
-  public ByteString encrypt(Collection<ByteString> publicKeys, ByteString plaintext, int padding) {
+  public static ByteString encrypt(
+      PrivateKey privateKey, Collection<PublicKey> publicKeys, ByteString plaintext, int padding)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
     final ByteString sk = SimpleBox.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
     // encode and encrypt header
-    final int dataOffset = publicKeys.size() * (KEY_LEN + MAC_LEN + OVERHEAD);
-    final int dataLength = plaintext.size();
+    final int dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
+    final int dataLength = plaintext.size() + SIG_LEN;
     final ByteString header =
         session.seal(new Buffer().writeInt(dataOffset).writeInt(dataLength).readByteString());
 
-    // encrypt a copy of the session key and plaintext mac with each public key
+    // encrypt a copy of the session key with each public key
     final Buffer keysBuf = new Buffer();
-    for (ByteString pk : publicKeys) {
-      final ByteString sharedKey = SecretBox.sharedSecret(pk, privateKey);
-      final SimpleBox shared = new SimpleBox(sharedKey);
-      final ByteString mac = hmac(sharedKey, plaintext);
-      keysBuf.write(shared.seal(new Buffer().write(sk).write(mac).readByteString()));
+    for (PublicKey pk : publicKeys) {
+      final SimpleBox shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
+      keysBuf.write(shared.seal(sk));
     }
     final ByteString keys = keysBuf.readByteString();
 
-    // encrypt the plaintext
-    final ByteString encData = session.seal(plaintext);
+    // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
+    final ByteString signed =
+        new Buffer().write(header).write(keys).write(plaintext).readByteString();
+    final byte[] sig = sign(privateKey, signed);
+
+    // encrypt the plaintext and the signature
+    final ByteString data = new Buffer().write(sig).write(plaintext).readByteString();
+    final ByteString encData = session.seal(data);
 
     // generate random padding
     final byte[] pad = new byte[padding];
@@ -75,70 +82,79 @@ public class Veil {
     return new Buffer().write(header).write(keys).write(encData).write(pad).readByteString();
   }
 
-  public Optional<ByteString> decrypt( ByteString publicKey, ByteString ciphertext) {
+  public static ByteString decrypt(
+      PrivateKey privateKey, PublicKey publicKey, ByteString ciphertext)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
     try {
-      final ByteString sharedKey = SecretBox.sharedSecret(publicKey, privateKey);
-      final SimpleBox shared = new SimpleBox(sharedKey);
+      final SimpleBox shared = new SimpleBox(publicKey.encryptionKey(), privateKey.decryptionKey());
       final Buffer in = new Buffer().write(ciphertext);
 
       // copy the fixed-length header
       final ByteString encHeader = in.readByteString(HEADER_LEN + OVERHEAD);
 
-      // iterate through key+mac-sized chunks, trying to decrypt them
-      ByteString packet = null;
+      // iterate through key-sized chunks, trying to decrypt them
+      Optional<ByteString> sk = Optional.empty();
       while (in.size() > KEY_LEN + OVERHEAD) {
-        final ByteString encPacket = in.readByteString(KEY_LEN + MAC_LEN + OVERHEAD);
-        final Optional<ByteString> p = shared.open(encPacket);
-        if (p.isPresent()) {
-          packet = p.get();
+        final Optional<ByteString> result = shared.open(in.readByteString(KEY_LEN + OVERHEAD));
+        if (result.isPresent()) {
+          sk = result;
           break;
         }
       }
-      if (packet == null) {
-        return Optional.empty();
-      }
-      final ByteString sk = packet.substring(0, KEY_LEN);
-      final ByteString mac = packet.substring(KEY_LEN);
+      final SimpleBox session = new SimpleBox(sk.orElseThrow(IllegalArgumentException::new));
 
       // decrypt the header
-      final SimpleBox session = new SimpleBox(sk);
-      final Optional<ByteString> header = session.open(encHeader);
-      if (!header.isPresent()) {
-        return Optional.empty();
-      }
-      final Buffer headerBuffer = new Buffer().write(header.get());
-      final int dataOffset = headerBuffer.readInt();
-      final int dataLength = headerBuffer.readInt();
+      final Buffer header =
+          new Buffer().write(session.open(encHeader).orElseThrow(IllegalArgumentException::new));
+      final int dataOffset = header.readInt();
+      final int dataLength = header.readInt();
 
       // skip the other keys
       in.skip((dataOffset + HEADER_LEN + OVERHEAD) - (ciphertext.size() - in.size()));
 
-      // decrypt the data
+      // decrypt the data and signature
       final ByteString encData = in.readByteString(dataLength + OVERHEAD);
-      final Optional<ByteString> plaintext = session.open(encData);
-      if (!plaintext.isPresent()) {
-        return Optional.empty();
-      }
+      final Buffer data =
+          new Buffer().write(session.open(encData).orElseThrow(IllegalArgumentException::new));
+      final ByteString sig = data.readByteString(SIG_LEN);
+      final ByteString plaintext = data.readByteString();
 
-      // check the mac
-      final ByteString candidateMac = hmac(sharedKey, plaintext.get());
-      if (!MessageDigest.isEqual(mac.toByteArray(), candidateMac.toByteArray())) {
+      // rebuild the signed data and verify the signature
+      final ByteString signed =
+          new Buffer()
+              .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
+              .write(plaintext)
+              .readByteString();
+      if (!verify(publicKey, signed, sig)) {
         throw new IllegalArgumentException();
       }
 
       // return the plaintext
       return plaintext;
     } catch (IOException e) {
-      return Optional.empty();
+      throw new IllegalArgumentException();
     }
   }
 
-  private static ByteString hmac(ByteString k, ByteString m) {
-    final HMac hmac = new HMac(DigestFactory.createSHA512_256());
-    hmac.init(new KeyParameter(k.toByteArray()));
-    hmac.update(m.toByteArray(), 0, m.size());
-    final byte[] h = new byte[MAC_LEN];
-    hmac.doFinal(h, 0);
-    return ByteString.of(h);
+  private static byte[] sign(PrivateKey privateKey, ByteString signed)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+    final EdDSAEngine signature =
+        new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
+    signature.initSign(
+        new EdDSAPrivateKey(
+            new EdDSAPrivateKeySpec(ED_25519, privateKey.signingKey().toByteArray())));
+    signature.update(signed.toByteArray());
+    return signature.sign();
+  }
+
+  private static boolean verify(PublicKey publicKey, ByteString signed, ByteString sig)
+      throws NoSuchAlgorithmException, InvalidKeyException, SignatureException {
+    final EdDSAEngine signature =
+        new EdDSAEngine(MessageDigest.getInstance(ED_25519.getHashAlgorithm()));
+    signature.initVerify(
+        new EdDSAPublicKey(
+            new EdDSAPublicKeySpec(publicKey.verificationKey().toByteArray(), ED_25519)));
+    signature.update(signed.toByteArray());
+    return signature.verify(sig.toByteArray());
   }
 }
