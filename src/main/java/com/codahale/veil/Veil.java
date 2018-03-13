@@ -15,6 +15,7 @@
  */
 package com.codahale.veil;
 
+import com.codahale.xsalsa20poly1305.Keys;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
 import java.security.InvalidKeyException;
@@ -47,7 +48,7 @@ public class Veil {
   }
 
   public ByteString encrypt(Collection<PublicKey> publicKeys, ByteString plaintext, int padding) {
-    final ByteString sk = SimpleBox.generateSecretKey();
+    final ByteString sk = Keys.generateSecretKey();
     final SimpleBox session = new SimpleBox(sk);
 
     // generate random padding

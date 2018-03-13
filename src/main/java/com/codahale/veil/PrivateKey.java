@@ -15,7 +15,7 @@
  */
 package com.codahale.veil;
 
-import com.codahale.xsalsa20poly1305.SimpleBox;
+import com.codahale.xsalsa20poly1305.Keys;
 import com.google.auto.value.AutoValue;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyPair;
@@ -30,8 +30,8 @@ import okio.ByteString;
 @AutoValue
 public abstract class PrivateKey {
   public static PrivateKey generate() {
-    final ByteString decryptionKey = SimpleBox.generatePrivateKey();
-    final ByteString encryptionKey = SimpleBox.generatePublicKey(decryptionKey);
+    final ByteString decryptionKey = Keys.generatePrivateKey();
+    final ByteString encryptionKey = Keys.generatePublicKey(decryptionKey);
 
     final EdDSANamedCurveSpec spec = EdDSANamedCurveTable.getByName("Ed25519");
     final KeyPairGenerator generator = new KeyPairGenerator();
