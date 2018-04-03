@@ -39,7 +39,7 @@
     <maven.compiler.target>1.9</maven.compiler.target>
     <maven.compiler.source>1.9</maven.compiler.source>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <auto-value.version>1.6rc1</auto-value.version>
+    <auto-value.version>1.6</auto-value.version>
   </properties>
 
   <dependencies>
