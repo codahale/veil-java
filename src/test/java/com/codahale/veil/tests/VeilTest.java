@@ -24,12 +24,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import okio.ByteString;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-public class VeilTest {
+class VeilTest {
 
   @Test
-  public void roundTrip() {
+  void roundTrip() {
     final PrivateKey a = PrivateKey.generate();
     final PrivateKey b = PrivateKey.generate();
     final PrivateKey c = PrivateKey.generate();
