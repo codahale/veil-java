@@ -26,7 +26,6 @@ import java.util.Optional;
 import net.i2p.crypto.eddsa.EdDSAEngine;
 import net.i2p.crypto.eddsa.EdDSAPrivateKey;
 import net.i2p.crypto.eddsa.EdDSAPublicKey;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveSpec;
 import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
 import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
 import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
@@ -39,7 +38,6 @@ public class Veil {
   private static final int HEADER_LEN = 8;
   private static final int KEY_LEN = 32;
   private static final int SIG_LEN = 64;
-  private static final EdDSANamedCurveSpec ED_25519 = EdDSANamedCurveTable.getByName("Ed25519");
 
   private final PrivateKey privateKey;
 
@@ -152,7 +150,9 @@ public class Veil {
       final EdDSAEngine signature = new EdDSAEngine();
       signature.initSign(
           new EdDSAPrivateKey(
-              new EdDSAPrivateKeySpec(ED_25519, privateKey.signingKey().toByteArray())));
+              new EdDSAPrivateKeySpec(
+                  EdDSANamedCurveTable.ED_25519_CURVE_SPEC,
+                  privateKey.signingKey().toByteArray())));
       signature.update(signed.toByteArray());
       return signature.sign();
     } catch (InvalidKeyException | SignatureException e) {
@@ -165,7 +165,9 @@ public class Veil {
       final EdDSAEngine signature = new EdDSAEngine();
       signature.initVerify(
           new EdDSAPublicKey(
-              new EdDSAPublicKeySpec(publicKey.verificationKey().toByteArray(), ED_25519)));
+              new EdDSAPublicKeySpec(
+                  publicKey.verificationKey().toByteArray(),
+                  EdDSANamedCurveTable.ED_25519_CURVE_SPEC)));
       signature.update(signed.toByteArray());
       return signature.verify(sig.toByteArray());
     } catch (InvalidKeyException | SignatureException e) {
