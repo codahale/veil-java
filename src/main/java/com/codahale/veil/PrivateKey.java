@@ -17,15 +17,9 @@ package com.codahale.veil;
 
 import com.codahale.xsalsa20poly1305.Keys;
 import com.google.auto.value.AutoValue;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.KeyPair;
 import java.security.SecureRandom;
-import net.i2p.crypto.eddsa.EdDSAPrivateKey;
-import net.i2p.crypto.eddsa.EdDSAPublicKey;
-import net.i2p.crypto.eddsa.KeyPairGenerator;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveSpec;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
 import okio.ByteString;
+import org.bouncycastle.math.ec.rfc8032.Ed25519;
 
 @AutoValue
 public abstract class PrivateKey {
@@ -33,22 +27,17 @@ public abstract class PrivateKey {
     final ByteString decryptionKey = Keys.generatePrivateKey();
     final ByteString encryptionKey = Keys.generatePublicKey(decryptionKey);
 
-    final EdDSANamedCurveSpec spec = EdDSANamedCurveTable.getByName("Ed25519");
-    final KeyPairGenerator generator = new KeyPairGenerator();
     final SecureRandom random = new SecureRandom();
-    try {
-      generator.initialize(spec, random);
-    } catch (InvalidAlgorithmParameterException e) {
-      throw new RuntimeException(e);
-    }
-    final KeyPair keyPair = generator.generateKeyPair();
+    final byte[] signingKey = new byte[Ed25519.SECRET_KEY_SIZE];
+    random.nextBytes(signingKey);
 
-    final EdDSAPrivateKey signingKey = (EdDSAPrivateKey) keyPair.getPrivate();
-    final EdDSAPublicKey verifyingKey = (EdDSAPublicKey) keyPair.getPublic();
+    final byte[] verifyingKey = new byte[Ed25519.PUBLIC_KEY_SIZE];
+    Ed25519.generatePublicKey(signingKey, 0, verifyingKey, 0);
 
-    final PublicKey pk = PublicKey.of(encryptionKey, ByteString.of(verifyingKey.getAbyte()));
-
-    return of(pk, decryptionKey, ByteString.of(signingKey.getH()));
+    return of(
+        PublicKey.of(encryptionKey, ByteString.of(verifyingKey)),
+        decryptionKey,
+        ByteString.of(signingKey));
   }
 
   public static PrivateKey of(

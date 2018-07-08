@@ -18,19 +18,12 @@ package com.codahale.veil;
 import com.codahale.xsalsa20poly1305.Keys;
 import com.codahale.xsalsa20poly1305.SimpleBox;
 import java.io.IOException;
-import java.security.InvalidKeyException;
 import java.security.SecureRandom;
-import java.security.SignatureException;
 import java.util.Collection;
 import java.util.Optional;
-import net.i2p.crypto.eddsa.EdDSAEngine;
-import net.i2p.crypto.eddsa.EdDSAPrivateKey;
-import net.i2p.crypto.eddsa.EdDSAPublicKey;
-import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
-import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
-import net.i2p.crypto.eddsa.spec.EdDSAPublicKeySpec;
 import okio.Buffer;
 import okio.ByteString;
+import org.bouncycastle.math.ec.rfc8032.Ed25519;
 
 public class Veil {
 
@@ -146,32 +139,26 @@ public class Veil {
   }
 
   private byte[] sign(ByteString signed) {
-    try {
-      final EdDSAEngine signature = new EdDSAEngine();
-      signature.initSign(
-          new EdDSAPrivateKey(
-              new EdDSAPrivateKeySpec(
-                  EdDSANamedCurveTable.ED_25519_CURVE_SPEC,
-                  privateKey.signingKey().toByteArray())));
-      signature.update(signed.toByteArray());
-      return signature.sign();
-    } catch (InvalidKeyException | SignatureException e) {
-      throw new RuntimeException(e);
-    }
+    final byte[] signature = new byte[Ed25519.SIGNATURE_SIZE];
+    Ed25519.sign(
+        privateKey.signingKey().toByteArray(),
+        0,
+        signed.toByteArray(),
+        0,
+        signed.size(),
+        signature,
+        0);
+    return signature;
   }
 
   private boolean verify(PublicKey publicKey, ByteString signed, ByteString sig) {
-    try {
-      final EdDSAEngine signature = new EdDSAEngine();
-      signature.initVerify(
-          new EdDSAPublicKey(
-              new EdDSAPublicKeySpec(
-                  publicKey.verificationKey().toByteArray(),
-                  EdDSANamedCurveTable.ED_25519_CURVE_SPEC)));
-      signature.update(signed.toByteArray());
-      return signature.verify(sig.toByteArray());
-    } catch (InvalidKeyException | SignatureException e) {
-      throw new RuntimeException(e);
-    }
+    return Ed25519.verify(
+        sig.toByteArray(),
+        0,
+        publicKey.verificationKey().toByteArray(),
+        0,
+        signed.toByteArray(),
+        0,
+        signed.size());
   }
 }
