@@ -25,24 +25,21 @@ import org.bouncycastle.math.ec.rfc8032.Ed25519;
 public abstract class PrivateKey {
   public static PrivateKey generate() {
     final ByteString decryptionKey = Keys.generatePrivateKey();
-    final ByteString encryptionKey = Keys.generatePublicKey(decryptionKey);
 
     final SecureRandom random = new SecureRandom();
     final byte[] signingKey = new byte[Ed25519.SECRET_KEY_SIZE];
     random.nextBytes(signingKey);
 
-    final byte[] verifyingKey = new byte[Ed25519.PUBLIC_KEY_SIZE];
-    Ed25519.generatePublicKey(signingKey, 0, verifyingKey, 0);
-
-    return of(
-        PublicKey.of(encryptionKey, ByteString.of(verifyingKey)),
-        decryptionKey,
-        ByteString.of(signingKey));
+    return of(decryptionKey, ByteString.of(signingKey));
   }
 
-  public static PrivateKey of(
-      PublicKey publicKey, ByteString decryptionKey, ByteString signingKey) {
-    return new AutoValue_PrivateKey(publicKey, decryptionKey, signingKey);
+  public static PrivateKey of(ByteString decryptionKey, ByteString signingKey) {
+    final ByteString encryptionKey = Keys.generatePublicKey(decryptionKey);
+    final byte[] verifyingKey = new byte[Ed25519.PUBLIC_KEY_SIZE];
+    Ed25519.generatePublicKey(signingKey.toByteArray(), 0, verifyingKey, 0);
+
+    return new AutoValue_PrivateKey(
+        PublicKey.of(encryptionKey, ByteString.of(verifyingKey)), decryptionKey, signingKey);
   }
 
   public abstract PublicKey publicKey();
