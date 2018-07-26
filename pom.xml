@@ -23,7 +23,7 @@
   <parent>
     <groupId>com.codahale</groupId>
     <artifactId>common-pom</artifactId>
-    <version>0.0.6</version>
+    <version>0.0.7</version>
   </parent>
 
   <artifactId>veil</artifactId>
@@ -32,6 +32,11 @@
   <inceptionYear>2017</inceptionYear>
 
   <dependencies>
+    <dependency>
+      <groupId>com.google.auto.value</groupId>
+      <artifactId>auto-value</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>com.google.auto.value</groupId>
       <artifactId>auto-value-annotations</artifactId>
