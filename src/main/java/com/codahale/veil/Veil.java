@@ -50,13 +50,13 @@ public class Veil {
     // encode and encrypt header
     var dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
     var dataLength = plaintext.length + SIG_LEN;
-    var headerBuf = ByteStreams.newDataOutput();
+    var headerBuf = ByteStreams.newDataOutput(8);
     headerBuf.writeInt(dataOffset);
     headerBuf.writeInt(dataLength);
     var header = session.seal(headerBuf.toByteArray());
 
     // encrypt a copy of the session key with each public key
-    var keysBuf = ByteStreams.newDataOutput();
+    var keysBuf = ByteStreams.newDataOutput(dataOffset);
     for (var pk : publicKeys) {
       var shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
       keysBuf.write(shared.seal(sk));
@@ -64,13 +64,13 @@ public class Veil {
     var keys = keysBuf.toByteArray();
 
     // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
-    var signedBuf = ByteStreams.newDataOutput();
-    signedBuf.write(header);
-    signedBuf.write(keys);
-    signedBuf.write(plaintext);
-    signedBuf.write(pad);
-    var signed = signedBuf.toByteArray();
-    var sig = sign(signed);
+    var signed =
+        ByteStreams.newDataOutput(header.length + keys.length + plaintext.length + padding);
+    signed.write(header);
+    signed.write(keys);
+    signed.write(plaintext);
+    signed.write(pad);
+    var sig = sign(signed.toByteArray());
 
     // encrypt the plaintext and the signature
     var data = ByteStreams.newDataOutput();
@@ -79,7 +79,7 @@ public class Veil {
     var encData = session.seal(data.toByteArray());
 
     // return the encrypted header, the encrypted keys, and the encrypted plaintext and signature
-    var out = ByteStreams.newDataOutput();
+    var out = ByteStreams.newDataOutput(header.length + keys.length + encData.length + padding);
     out.write(header);
     out.write(keys);
     out.write(encData);
@@ -97,8 +97,8 @@ public class Veil {
     in.readFully(encHeader);
     rem -= encHeader.length;
 
-    // iterate through key-sized chunks, trying to decrypt them
-    byte[] sk = null;
+    // iterate through key-sized chunks looking for our session key
+    SimpleBox session = null;
     var key = new byte[KEY_LEN + OVERHEAD];
     while (rem > key.length) {
       in.readFully(key);
@@ -106,15 +106,13 @@ public class Veil {
 
       final Optional<byte[]> result = shared.open(key);
       if (result.isPresent()) {
-        sk = result.get();
+        session = new SimpleBox(result.get());
         break;
       }
     }
-    if (sk == null) {
+    if (session == null) {
       return Optional.empty();
     }
-
-    var session = new SimpleBox(sk);
 
     // decrypt the header
     var hdr = session.open(encHeader);
@@ -151,7 +149,7 @@ public class Veil {
     dataBuf.readFully(plaintext);
 
     // rebuild the signed data and verify the signature
-    var signed = ByteStreams.newDataOutput();
+    var signed = ByteStreams.newDataOutput(ciphertext.length + plaintext.length + padding.length);
     signed.write(ciphertext, 0, HEADER_LEN + OVERHEAD + dataOffset);
     signed.write(plaintext);
     signed.write(padding);
