@@ -17,12 +17,10 @@ package com.codahale.veil;
 
 import com.codahale.xsalsa20poly1305.Keys;
 import com.codahale.xsalsa20poly1305.SimpleBox;
-import java.io.IOException;
+import com.google.common.io.ByteStreams;
 import java.security.SecureRandom;
 import java.util.Collection;
 import java.util.Optional;
-import okio.Buffer;
-import okio.ByteString;
 import org.bouncycastle.math.ec.rfc8032.Ed25519;
 
 public class Veil {
@@ -38,127 +36,140 @@ public class Veil {
     this.privateKey = privateKey;
   }
 
-  public ByteString encrypt(Collection<PublicKey> publicKeys, ByteString plaintext, int padding) {
-    final ByteString sk = Keys.generateSecretKey();
-    final SimpleBox session = new SimpleBox(sk);
+  public byte[] encrypt(Collection<PublicKey> publicKeys, byte[] plaintext, int padding) {
+    var sk = Keys.generateSecretKey();
+    var session = new SimpleBox(sk);
 
     // generate random padding
-    final byte[] pad = new byte[padding];
+    var pad = new byte[padding];
     if (padding > 0) {
-      final SecureRandom r = new SecureRandom();
+      var r = new SecureRandom();
       r.nextBytes(pad);
     }
 
     // encode and encrypt header
-    final int dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
-    final int dataLength = plaintext.size() + SIG_LEN;
-    final ByteString header =
-        session.seal(new Buffer().writeInt(dataOffset).writeInt(dataLength).readByteString());
+    var dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
+    var dataLength = plaintext.length + SIG_LEN;
+    var headerBuf = ByteStreams.newDataOutput();
+    headerBuf.writeInt(dataOffset);
+    headerBuf.writeInt(dataLength);
+    var header = session.seal(headerBuf.toByteArray());
 
     // encrypt a copy of the session key with each public key
-    final Buffer keysBuf = new Buffer();
-    for (PublicKey pk : publicKeys) {
-      final SimpleBox shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
+    var keysBuf = ByteStreams.newDataOutput();
+    for (var pk : publicKeys) {
+      var shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
       keysBuf.write(shared.seal(sk));
     }
-    final ByteString keys = keysBuf.readByteString();
+    var keys = keysBuf.toByteArray();
 
     // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
-    final ByteString signed =
-        new Buffer().write(header).write(keys).write(plaintext).write(pad).readByteString();
-    final byte[] sig = sign(signed);
+    var signedBuf = ByteStreams.newDataOutput();
+    signedBuf.write(header);
+    signedBuf.write(keys);
+    signedBuf.write(plaintext);
+    signedBuf.write(pad);
+    var signed = signedBuf.toByteArray();
+    var sig = sign(signed);
 
     // encrypt the plaintext and the signature
-    final ByteString data = new Buffer().write(sig).write(plaintext).readByteString();
-    final ByteString encData = session.seal(data);
+    var data = ByteStreams.newDataOutput();
+    data.write(sig);
+    data.write(plaintext);
+    var encData = session.seal(data.toByteArray());
 
     // return the encrypted header, the encrypted keys, and the encrypted plaintext and signature
-    return new Buffer().write(header).write(keys).write(encData).write(pad).readByteString();
+    var out = ByteStreams.newDataOutput();
+    out.write(header);
+    out.write(keys);
+    out.write(encData);
+    out.write(pad);
+    return out.toByteArray();
   }
 
-  public Optional<ByteString> decrypt(PublicKey publicKey, ByteString ciphertext) {
-    try {
-      final SimpleBox shared = new SimpleBox(publicKey.encryptionKey(), privateKey.decryptionKey());
-      final Buffer in = new Buffer().write(ciphertext);
+  public Optional<byte[]> decrypt(PublicKey publicKey, byte[] ciphertext) {
+    var shared = new SimpleBox(publicKey.encryptionKey(), privateKey.decryptionKey());
+    var in = ByteStreams.newDataInput(ciphertext);
+    var rem = ciphertext.length;
 
-      // copy the fixed-length header
-      final ByteString encHeader = in.readByteString(HEADER_LEN + OVERHEAD);
+    // copy the fixed-length header
+    var encHeader = new byte[HEADER_LEN + OVERHEAD];
+    in.readFully(encHeader);
+    rem -= encHeader.length;
 
-      // iterate through key-sized chunks, trying to decrypt them
-      ByteString sk = null;
-      while (in.size() > KEY_LEN + OVERHEAD) {
-        final Optional<ByteString> result = shared.open(in.readByteString(KEY_LEN + OVERHEAD));
-        if (result.isPresent()) {
-          sk = result.get();
-          break;
-        }
+    // iterate through key-sized chunks, trying to decrypt them
+    byte[] sk = null;
+    var key = new byte[KEY_LEN + OVERHEAD];
+    while (rem > key.length) {
+      in.readFully(key);
+      rem -= key.length;
+
+      final Optional<byte[]> result = shared.open(key);
+      if (result.isPresent()) {
+        sk = result.get();
+        break;
       }
-      if (sk == null) {
-        return Optional.empty();
-      }
-      final SimpleBox session = new SimpleBox(sk);
-
-      // decrypt the header
-      final Optional<ByteString> hdr = session.open(encHeader);
-      if (!hdr.isPresent()) {
-        return Optional.empty();
-      }
-      final Buffer header = new Buffer().write(hdr.get());
-      final int dataOffset = header.readInt();
-      final int dataLength = header.readInt();
-
-      // skip the other keys
-      in.skip((dataOffset + HEADER_LEN + OVERHEAD) - (ciphertext.size() - in.size()));
-
-      // decrypt the data and signature
-      final ByteString encData = in.readByteString(dataLength + OVERHEAD);
-      final ByteString padding = in.readByteString();
-      final Optional<ByteString> data = session.open(encData);
-      if (!data.isPresent()) {
-        return Optional.empty();
-      }
-      final ByteString sig = data.get().substring(0, SIG_LEN);
-      final ByteString plaintext = data.get().substring(SIG_LEN);
-
-      // rebuild the signed data and verify the signature
-      final ByteString signed =
-          new Buffer()
-              .write(ciphertext.substring(0, HEADER_LEN + OVERHEAD + dataOffset))
-              .write(plaintext)
-              .write(padding)
-              .readByteString();
-      if (!verify(publicKey, signed, sig)) {
-        return Optional.empty();
-      }
-
-      // return the plaintext
-      return Optional.of(plaintext);
-    } catch (IOException e) {
+    }
+    if (sk == null) {
       return Optional.empty();
     }
+
+    var session = new SimpleBox(sk);
+
+    // decrypt the header
+    var hdr = session.open(encHeader);
+    if (!hdr.isPresent()) {
+      return Optional.empty();
+    }
+    var header = ByteStreams.newDataInput(hdr.get());
+    var dataOffset = header.readInt();
+    var dataLength = header.readInt();
+
+    // skip the other keys
+    int keyLen = (dataOffset + HEADER_LEN + OVERHEAD) - (ciphertext.length - rem);
+    while (keyLen > 0) {
+      var x = in.skipBytes(keyLen);
+      keyLen -= x;
+      rem -= x;
+    }
+
+    // decrypt the data and signature
+    var encData = new byte[dataLength + OVERHEAD];
+    in.readFully(encData);
+    rem -= encData.length;
+
+    var padding = new byte[rem];
+    in.readFully(padding);
+    var data = session.open(encData);
+    if (!data.isPresent()) {
+      return Optional.empty();
+    }
+    var dataBuf = ByteStreams.newDataInput(data.get());
+    var sig = new byte[SIG_LEN];
+    dataBuf.readFully(sig);
+    var plaintext = new byte[dataLength - SIG_LEN];
+    dataBuf.readFully(plaintext);
+
+    // rebuild the signed data and verify the signature
+    var signed = ByteStreams.newDataOutput();
+    signed.write(ciphertext, 0, HEADER_LEN + OVERHEAD + dataOffset);
+    signed.write(plaintext);
+    signed.write(padding);
+    if (!verify(publicKey, signed.toByteArray(), sig)) {
+      return Optional.empty();
+    }
+
+    // return the plaintext
+    return Optional.of(plaintext);
   }
 
-  private byte[] sign(ByteString signed) {
-    final byte[] signature = new byte[Ed25519.SIGNATURE_SIZE];
-    Ed25519.sign(
-        privateKey.signingKey().toByteArray(),
-        0,
-        signed.toByteArray(),
-        0,
-        signed.size(),
-        signature,
-        0);
+  private byte[] sign(byte[] signed) {
+    var signature = new byte[Ed25519.SIGNATURE_SIZE];
+    Ed25519.sign(privateKey.signingKey(), 0, signed, 0, signed.length, signature, 0);
     return signature;
   }
 
-  private boolean verify(PublicKey publicKey, ByteString signed, ByteString sig) {
-    return Ed25519.verify(
-        sig.toByteArray(),
-        0,
-        publicKey.verificationKey().toByteArray(),
-        0,
-        signed.toByteArray(),
-        0,
-        signed.size());
+  private boolean verify(PublicKey publicKey, byte[] signed, byte[] sig) {
+    return Ed25519.verify(sig, 0, publicKey.verificationKey(), 0, signed, 0, signed.length);
   }
 }

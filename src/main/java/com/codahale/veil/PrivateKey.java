@@ -16,35 +16,78 @@
 package com.codahale.veil;
 
 import com.codahale.xsalsa20poly1305.Keys;
-import com.google.auto.value.AutoValue;
+import com.google.common.io.BaseEncoding;
 import java.security.SecureRandom;
-import okio.ByteString;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.StringJoiner;
 import org.bouncycastle.math.ec.rfc8032.Ed25519;
 
-@AutoValue
-public abstract class PrivateKey {
-  public static PrivateKey generate() {
-    final ByteString decryptionKey = Keys.generatePrivateKey();
+public class PrivateKey {
 
-    final SecureRandom random = new SecureRandom();
-    final byte[] signingKey = new byte[Ed25519.SECRET_KEY_SIZE];
+  private final PublicKey publicKey;
+  private final byte[] decryptionKey;
+  private final byte[] signingKey;
+
+  public PrivateKey(byte[] decryptionKey, byte[] signingKey) {
+    this.decryptionKey = Arrays.copyOf(decryptionKey, decryptionKey.length);
+    this.signingKey = Arrays.copyOf(signingKey, signingKey.length);
+    var encryptionKey = Keys.generatePublicKey(decryptionKey);
+    var verifyingKey = new byte[Ed25519.PUBLIC_KEY_SIZE];
+    Ed25519.generatePublicKey(signingKey, 0, verifyingKey, 0);
+    this.publicKey = new PublicKey(encryptionKey, verifyingKey);
+  }
+
+  public static PrivateKey generate() {
+    var decryptionKey = Keys.generatePrivateKey();
+
+    var random = new SecureRandom();
+    var signingKey = new byte[Ed25519.SECRET_KEY_SIZE];
     random.nextBytes(signingKey);
 
-    return of(decryptionKey, ByteString.of(signingKey));
+    return new PrivateKey(decryptionKey, signingKey);
   }
 
-  public static PrivateKey of(ByteString decryptionKey, ByteString signingKey) {
-    final ByteString encryptionKey = Keys.generatePublicKey(decryptionKey);
-    final byte[] verifyingKey = new byte[Ed25519.PUBLIC_KEY_SIZE];
-    Ed25519.generatePublicKey(signingKey.toByteArray(), 0, verifyingKey, 0);
-
-    return new AutoValue_PrivateKey(
-        PublicKey.of(encryptionKey, ByteString.of(verifyingKey)), decryptionKey, signingKey);
+  public PublicKey publicKey() {
+    return publicKey;
   }
 
-  public abstract PublicKey publicKey();
+  public byte[] decryptionKey() {
+    return Arrays.copyOf(decryptionKey, decryptionKey.length);
+  }
 
-  public abstract ByteString decryptionKey();
+  public byte[] signingKey() {
+    return Arrays.copyOf(signingKey, signingKey.length);
+  }
 
-  public abstract ByteString signingKey();
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    PrivateKey that = (PrivateKey) o;
+    return Objects.equals(publicKey, that.publicKey)
+        && Arrays.equals(decryptionKey, that.decryptionKey)
+        && Arrays.equals(signingKey, that.signingKey);
+  }
+
+  @Override
+  public int hashCode() {
+    int result = Objects.hash(publicKey);
+    result = 31 * result + Arrays.hashCode(decryptionKey);
+    result = 31 * result + Arrays.hashCode(signingKey);
+    return result;
+  }
+
+  @Override
+  public String toString() {
+    return new StringJoiner(", ", PrivateKey.class.getSimpleName() + "[", "]")
+        .add("publicKey=" + publicKey)
+        .add("decryptionKey=" + BaseEncoding.base16().encode(decryptionKey))
+        .add("signingKey=" + BaseEncoding.base16().encode(signingKey))
+        .toString();
+  }
 }

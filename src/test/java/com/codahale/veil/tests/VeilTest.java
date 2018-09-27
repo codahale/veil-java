@@ -20,10 +20,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.codahale.veil.PrivateKey;
 import com.codahale.veil.PublicKey;
 import com.codahale.veil.Veil;
+import com.google.common.io.BaseEncoding;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import okio.ByteString;
 import org.junit.jupiter.api.Test;
 
 class VeilTest {
@@ -34,78 +35,78 @@ class VeilTest {
     final PrivateKey b = PrivateKey.generate();
     final PrivateKey c = PrivateKey.generate();
 
-    final ByteString plaintext = ByteString.encodeUtf8("this is super cool");
+    final byte[] plaintext = "this is super cool".getBytes(StandardCharsets.UTF_8);
 
     final List<PublicKey> keys = Arrays.asList(a.publicKey(), b.publicKey(), c.publicKey());
-    final ByteString c1 = new Veil(a).encrypt(keys, plaintext, 1000);
-    final ByteString c2 = new Veil(a).encrypt(keys, plaintext, 2000);
+    final byte[] c1 = new Veil(a).encrypt(keys, plaintext, 1000);
+    final byte[] c2 = new Veil(a).encrypt(keys, plaintext, 2000);
 
-    assertThat(c2.size() - c1.size()).isEqualTo(1000);
+    assertThat(c2.length - c1.length).isEqualTo(1000);
 
-    final Optional<ByteString> p1 = new Veil(a).decrypt(a.publicKey(), c1);
+    final Optional<byte[]> p1 = new Veil(a).decrypt(a.publicKey(), c1);
     assertThat(p1).contains(plaintext);
 
-    final Optional<ByteString> p2 = new Veil(b).decrypt(a.publicKey(), c1);
+    final Optional<byte[]> p2 = new Veil(b).decrypt(a.publicKey(), c1);
     assertThat(p2).contains(plaintext);
 
-    final Optional<ByteString> p3 = new Veil(c).decrypt(a.publicKey(), c1);
+    final Optional<byte[]> p3 = new Veil(c).decrypt(a.publicKey(), c1);
     assertThat(p3).contains(plaintext);
   }
 
   @Test
   void fixedRoundTrip() {
     final PrivateKey privA =
-        PrivateKey.of(
-            ByteString.decodeHex(
-                "486263b5e4364720a7e38e96c007857d0f1018b98a797d2f985be60d32c23b6b"),
-            ByteString.decodeHex(
-                "118f567d9b2dddf85f5faf20a979e5dcf5cab2acc3f7762cfcc1c802d421a812"));
+        new PrivateKey(
+            BaseEncoding.base16()
+                .decode("486263B5E4364720A7E38E96C007857D0F1018B98A797D2F985BE60D32C23B6B"),
+            BaseEncoding.base16()
+                .decode("118F567D9B2DDDF85F5FAF20A979E5DCF5CAB2ACC3F7762CFCC1C802D421A812"));
     final PublicKey pubA =
-        PublicKey.of(
-            ByteString.decodeHex(
-                "9ead227b3474240ca194a7861babe84c53b44592ab795244ece3e3f468e88107"),
-            ByteString.decodeHex(
-                "853f360a2423d49424ec199e6f081cc85b0582319e100452949e2fb66b5a3916"));
+        new PublicKey(
+            BaseEncoding.base16()
+                .decode("9EAD227B3474240CA194A7861BABE84C53B44592AB795244ECE3E3F468E88107"),
+            BaseEncoding.base16()
+                .decode("853F360A2423D49424EC199E6F081CC85B0582319E100452949E2FB66B5A3916"));
     final PrivateKey privB =
-        PrivateKey.of(
-            ByteString.decodeHex(
-                "9882e2ca165682c0baad06433f8e14881777e76dbd4ce10c47b998488a2f0862"),
-            ByteString.decodeHex(
-                "2454a84d1ad2861e7d1ce154a26fe8d699ae9398e66b8a52e2dc72f2af83505d"));
+        new PrivateKey(
+            BaseEncoding.base16()
+                .decode("9882E2CA165682C0BAAD06433F8E14881777E76DBD4CE10C47B998488A2F0862"),
+            BaseEncoding.base16()
+                .decode("2454A84D1AD2861E7D1CE154A26FE8D699AE9398E66B8A52E2DC72F2AF83505D"));
     final PublicKey pubB =
-        PublicKey.of(
-            ByteString.decodeHex(
-                "16214fcf7f4fa2752bb227570bc8ce7ef886ee8f2d6115c230d8cdb2a609041c"),
-            ByteString.decodeHex(
-                "3c98e6f31d764e6cb79fafef16af585f1d99483a99c57663a3c4b6f1cdb4384a"));
+        new PublicKey(
+            BaseEncoding.base16()
+                .decode("16214FCF7F4FA2752BB227570BC8CE7EF886EE8F2D6115C230D8CDB2A609041C"),
+            BaseEncoding.base16()
+                .decode("3C98E6F31D764E6CB79FAFEF16AF585F1D99483A99C57663A3C4B6F1CDB4384A"));
     final PrivateKey privC =
-        PrivateKey.of(
-            ByteString.decodeHex(
-                "c00484773cbc61115f3ff623766453cd82cf4f89b1d1181272ec86c519acc677"),
-            ByteString.decodeHex(
-                "a1bfc67d55fa102076c220cf4e74ffd5e8bcd283fc9ae0e98c2dcb8d02bc5304"));
+        new PrivateKey(
+            BaseEncoding.base16()
+                .decode("C00484773CBC61115F3FF623766453CD82CF4F89B1D1181272EC86C519ACC677"),
+            BaseEncoding.base16()
+                .decode("A1BFC67D55FA102076C220CF4E74FFD5E8BCD283FC9AE0E98C2DCB8D02BC5304"));
     final PublicKey pubC =
-        PublicKey.of(
-            ByteString.decodeHex(
-                "2889754d85c31f779f61ead80890e750ce7962ac75576f32fcca700b241eeb08"),
-            ByteString.decodeHex(
-                "fdc6acac627798a18a60dc52ea1df66d10f3ebd5fdb9440f8f31cce7af7e264c"));
+        new PublicKey(
+            BaseEncoding.base16()
+                .decode("2889754D85C31F779F61EAD80890E750CE7962AC75576F32FCCA700B241EEB08"),
+            BaseEncoding.base16()
+                .decode("FDC6ACAC627798A18A60DC52EA1DF66D10F3EBD5FDB9440F8F31CCE7AF7E264C"));
 
-    final ByteString plaintext = ByteString.encodeUtf8("this is super cool");
+    final byte[] plaintext = "this is super cool".getBytes(StandardCharsets.UTF_8);
 
     final List<PublicKey> keys = Arrays.asList(pubA, pubB, pubC);
-    final ByteString c1 = new Veil(privA).encrypt(keys, plaintext, 1000);
-    final ByteString c2 = new Veil(privA).encrypt(keys, plaintext, 2000);
+    final byte[] c1 = new Veil(privA).encrypt(keys, plaintext, 1000);
+    final byte[] c2 = new Veil(privA).encrypt(keys, plaintext, 2000);
 
-    assertThat(c2.size() - c1.size()).isEqualTo(1000);
+    assertThat(c2.length - c1.length).isEqualTo(1000);
 
-    final Optional<ByteString> p1 = new Veil(privA).decrypt(pubA, c1);
+    final Optional<byte[]> p1 = new Veil(privA).decrypt(pubA, c1);
     assertThat(p1).contains(plaintext);
 
-    final Optional<ByteString> p2 = new Veil(privB).decrypt(pubA, c1);
+    final Optional<byte[]> p2 = new Veil(privB).decrypt(pubA, c1);
     assertThat(p2).contains(plaintext);
 
-    final Optional<ByteString> p3 = new Veil(privC).decrypt(pubA, c1);
+    final Optional<byte[]> p3 = new Veil(privC).decrypt(pubA, c1);
     assertThat(p3).contains(plaintext);
   }
 }
