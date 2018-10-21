@@ -42,7 +42,7 @@ public class PublicKey {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof PublicKey)) {
       return false;
     }
     PublicKey publicKey = (PublicKey) o;

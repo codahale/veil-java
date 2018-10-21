@@ -65,7 +65,7 @@ public class PrivateKey {
     if (this == o) {
       return true;
     }
-    if (o == null || getClass() != o.getClass()) {
+    if (!(o instanceof PrivateKey)) {
       return false;
     }
     PrivateKey that = (PrivateKey) o;
