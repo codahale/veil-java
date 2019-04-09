@@ -16,139 +16,127 @@
 package com.codahale.veil;
 
 import com.google.common.io.ByteStreams;
+import java.security.KeyPair;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
 public class Veil {
 
-  private static final int HEADER_LEN = 8;
+  static final int DIGEST_LEN = 32;
+  private static final SecureRandom RANDOM = new SecureRandom();
+  private static final String DIGEST_ALG = "SHA-512/256";
+  private final PrivateKey privateKey;
 
-  private final PrivateKeyPair privateKeys;
-
-  public Veil(PrivateKeyPair privateKeys) {
-    this.privateKeys = privateKeys;
+  public Veil(PrivateKey privateKey) {
+    this.privateKey = privateKey;
   }
 
-  public byte[] encrypt(List<PublicKeyPair> publicKeys, byte[] plaintext, int padding) {
-    var sk = Crypto.random(Crypto.KEY_LENGTH);
+  public static KeyPair generate() {
+    return ECDH.generate();
+  }
+
+  static byte[] random(int size) {
+    var buf = new byte[size];
+    RANDOM.nextBytes(buf);
+    return buf;
+  }
+
+  private static byte[] digest(byte[] message) {
+    try {
+      var digest = MessageDigest.getInstance(DIGEST_ALG);
+      return digest.digest(message);
+    } catch (NoSuchAlgorithmException e) {
+      throw new UnsupportedOperationException(e);
+    }
+  }
+
+  public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding) {
+    // generate a random session key
+    var sessionKey = random(AEAD.KEY_LEN);
 
     // generate random padding
-    var pad = Crypto.random(padding);
+    var pad = random(padding);
 
-    // encode and encrypt header
-    var dataOffset = publicKeys.size() * (Crypto.KEY_LENGTH + Crypto.OVERHEAD);
-    var dataLength = plaintext.length + Crypto.SIG_LENGTH;
-    var headerBuf = ByteStreams.newDataOutput(8);
-    headerBuf.writeInt(dataOffset);
-    headerBuf.writeInt(dataLength);
-    var header = Crypto.encrypt(sk, headerBuf.toByteArray(), new byte[0]);
+    // calculate a digest of the plaintext
+    var digest = digest(plaintext);
 
-    // encrypt a copy of the session key with the shared secret for each public key
-    var keysBuf = ByteStreams.newDataOutput(dataOffset);
-    var sharedKeys = new byte[publicKeys.size()][];
-    for (int i = 0; i < publicKeys.size(); i++) {
-      var publicKey = publicKeys.get(i).encryptionKey();
-      var sharedKey = Crypto.sharedSecret(privateKeys.decryptionKey(), publicKey);
-      keysBuf.write(Crypto.encrypt(sharedKey, sk, new byte[0]));
-      sharedKeys[i] = sharedKey;
+    // create output buffer
+    var out =
+        ByteStreams.newDataOutput(
+            publicKeys.size() * (Header.LEN + AEAD.OVERHEAD)
+                + plaintext.length
+                + padding
+                + AEAD.OVERHEAD);
+
+    // create encrypted header packets
+    for (var publicKey : publicKeys) {
+      var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
+      var packet = new Header(sessionKey, publicKeys.size(), plaintext.length, digest);
+      out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), new byte[0]));
     }
-    var keys = keysBuf.toByteArray();
+    var encryptedPackets = out.toByteArray();
 
-    // sign the encrypted header, the encrypted keys, and the unencrypted plaintext
-    var signed =
-        ByteStreams.newDataOutput(header.length + keys.length + plaintext.length + padding);
-    signed.write(header);
-    signed.write(keys);
-    signed.write(plaintext);
-    signed.write(pad);
-    var sig = Crypto.sign(privateKeys.signingKey(), signed.toByteArray());
+    // pad plaintext
+    var message = Arrays.copyOf(plaintext, plaintext.length + padding);
+    System.arraycopy(pad, 0, message, plaintext.length, pad.length);
 
-    // encrypt the plaintext and the signature
-    var data = ByteStreams.newDataOutput();
-    data.write(sig);
-    data.write(plaintext);
-    var encData = Crypto.encrypt(sk, data.toByteArray(), new byte[0]);
+    // encrypt with session key, using encrypted header packets as data
+    out.write(AEAD.encrypt(sessionKey, message, encryptedPackets));
 
-    // return the encrypted header, the encrypted keys, and the encrypted plaintext and signature
-    var out = ByteStreams.newDataOutput(header.length + keys.length + encData.length + padding);
-    out.write(header);
-    out.write(keys);
-    out.write(encData);
-    out.write(pad);
+    // header packets + encrypted message
     return out.toByteArray();
   }
 
-  public Optional<byte[]> decrypt(PublicKeyPair publicKey, byte[] ciphertext) {
-    var shared = Crypto.sharedSecret(privateKeys.decryptionKey(), publicKey.encryptionKey());
+  public Optional<byte[]> decrypt(PublicKey publicKey, byte[] ciphertext) {
     var in = ByteStreams.newDataInput(ciphertext);
-    var rem = ciphertext.length;
+    var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
 
-    // copy the fixed-length header
-    var encHeader = new byte[HEADER_LEN + Crypto.OVERHEAD];
-    in.readFully(encHeader);
-    rem -= encHeader.length;
+    // iterate through header packet-shaped things
+    var headerBuf = new byte[Header.LEN + AEAD.OVERHEAD];
+    Header header = null;
+    while (header == null) {
+      try {
+        in.readFully(headerBuf);
+      } catch (IllegalStateException e) {
+        return Optional.empty();
+      }
 
-    // iterate through key-sized chunks looking for our session key
-    byte[] session = null;
-    var key = new byte[Crypto.KEY_LENGTH + Crypto.OVERHEAD];
-    while (rem > key.length) {
-      in.readFully(key);
-      rem -= key.length;
-
-      var result = Crypto.decrypt(shared, key, new byte[0]);
-      if (result != null) {
-        session = result;
-        break;
+      var buf = AEAD.decrypt(sharedKey, headerBuf, new byte[0]);
+      if (buf != null) {
+        header = Header.parse(buf);
       }
     }
-    if (session == null) {
+
+    // rewind to beginning of file
+    in = ByteStreams.newDataInput(ciphertext);
+
+    // read headers and encrypted message
+    var headers = new byte[headerBuf.length * header.headerCount()];
+    var encMessage = new byte[ciphertext.length - headers.length];
+    in.readFully(headers);
+    in.readFully(encMessage);
+
+    // decrypt message
+    var padded = AEAD.decrypt(header.sessionKey(), encMessage, headers);
+    if (padded == null) {
       return Optional.empty();
     }
 
-    // decrypt the header
-    var hdr = Crypto.decrypt(session, encHeader, new byte[0]);
-    if (hdr == null) {
-      return Optional.empty();
-    }
-    var header = ByteStreams.newDataInput(hdr);
-    var dataOffset = header.readInt();
-    var dataLength = header.readInt();
+    // remove padding
+    var plaintext = Arrays.copyOf(padded, header.messageLen());
 
-    // skip the other keys
-    int keyLen = (dataOffset + HEADER_LEN + Crypto.OVERHEAD) - (ciphertext.length - rem);
-    while (keyLen > 0) {
-      var x = in.skipBytes(keyLen);
-      keyLen -= x;
-      rem -= x;
-    }
-
-    // decrypt the data and signature
-    var encData = new byte[dataLength + Crypto.OVERHEAD];
-    in.readFully(encData);
-    rem -= encData.length;
-
-    var padding = new byte[rem];
-    in.readFully(padding);
-    var data = Crypto.decrypt(session, encData, new byte[0]);
-    if (data == null) {
-      return Optional.empty();
-    }
-    var dataBuf = ByteStreams.newDataInput(data);
-    var sig = new byte[Crypto.SIG_LENGTH];
-    dataBuf.readFully(sig);
-    var plaintext = new byte[dataLength - Crypto.SIG_LENGTH];
-    dataBuf.readFully(plaintext);
-
-    // rebuild the signed data and verify the signature
-    var signed = ByteStreams.newDataOutput(ciphertext.length + plaintext.length + padding.length);
-    signed.write(ciphertext, 0, HEADER_LEN + Crypto.OVERHEAD + dataOffset);
-    signed.write(plaintext);
-    signed.write(padding);
-    if (!Crypto.verify(publicKey.verificationKey(), signed.toByteArray(), sig)) {
+    // check digest
+    if (!MessageDigest.isEqual(header.digest(), digest(plaintext))) {
       return Optional.empty();
     }
 
-    // return the plaintext
+    // return authenticated plaintext
     return Optional.of(plaintext);
   }
 }
