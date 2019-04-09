@@ -59,20 +59,20 @@ public class Veil {
                 + padding
                 + AEAD.OVERHEAD);
 
-    // create encrypted header packets
+    // create encrypted headers
     for (var publicKey : publicKeys) {
       var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
       var packet = new Header(sessionKey, publicKeys.size(), plaintext.length, digest);
       out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), new byte[0]));
     }
-    var encryptedPackets = out.toByteArray();
+    var headers = out.toByteArray();
 
     // pad plaintext
     var padded = Arrays.copyOf(plaintext, plaintext.length + padding);
     System.arraycopy(pad, 0, padded, plaintext.length, pad.length);
 
-    // encrypt with session key, using encrypted header packets as data
-    out.write(AEAD.encrypt(sessionKey, padded, encryptedPackets));
+    // encrypt with session key, using encrypted headers as data
+    out.write(AEAD.encrypt(sessionKey, padded, headers));
 
     // header packets + encrypted message
     return out.toByteArray();
@@ -82,7 +82,7 @@ public class Veil {
     // generate shared secret
     var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
 
-    // iterate through header packet-shaped things
+    // iterate through headers looking for one we can decrypt
     var header = findHeader(sharedKey, ciphertext);
     if (header == null) {
       return Optional.empty();
@@ -92,7 +92,7 @@ public class Veil {
     var headers = Arrays.copyOf(ciphertext, (Header.LEN + AEAD.OVERHEAD)* header.headerCount());
     var encrypted = Arrays.copyOfRange(ciphertext, headers.length, ciphertext.length);
 
-    // decrypt message
+    // decrypt message using encrypted headers as authenticated data
     var padded = AEAD.decrypt(header.sessionKey(), encrypted, headers);
     if (padded == null) {
       return Optional.empty();
