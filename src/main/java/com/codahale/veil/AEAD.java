@@ -1,6 +1,6 @@
 package com.codahale.veil;
 
-import com.google.common.primitives.Ints;
+import com.google.common.primitives.Longs;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
@@ -51,16 +51,11 @@ class AEAD {
       cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(encKey, ENC_KEY_ALG), ivSpec);
       cipher.doFinal(plaintext, 0, plaintext.length, out, NONCE_LEN + NONCE_LEN);
 
-      // hash the data, salt, nonce and ciphertext w/ HMAC-SHA512/256
-      final int len = NONCE_LEN + NONCE_LEN + plaintext.length;
-      var hmac = Mac.getInstance(MAC_ALG);
-      hmac.init(new SecretKeySpec(hmacKey, MAC_ALG));
-      hmac.update(Ints.toByteArray(data.length));
-      hmac.update(data);
-      hmac.update(out, 0, len);
-      hmac.doFinal(out, len);
+      // calculate the AEAD tag
+      var len = NONCE_LEN + NONCE_LEN + plaintext.length;
+      authenticator(hmacKey, out, len, data, out, len);
 
-      // return salt + nonce + ciphertext + digest
+      // return salt + nonce + ciphertext + tag
       return out;
     } catch (NoSuchAlgorithmException
         | NoSuchPaddingException
@@ -81,16 +76,12 @@ class AEAD {
       var hmacKey = new byte[KEY_LEN];
       generateSubkeys(key, salt, encKey, hmacKey);
 
-      // hash the data, salt, nonce and ciphertext w/ HMAC-SHA512/256
-      var hmac = Mac.getInstance(MAC_ALG);
-      hmac.init(new SecretKeySpec(hmacKey, MAC_ALG));
-      hmac.update(Ints.toByteArray(data.length));
-      hmac.update(data);
-      hmac.update(ciphertext, 0, ciphertext.length - MAC_LEN);
-
-      // compare digests
-      var digest = Arrays.copyOfRange(ciphertext, ciphertext.length - MAC_LEN, ciphertext.length);
-      if (!MessageDigest.isEqual(digest, hmac.doFinal())) {
+      // calculate the AEAD tag and compare
+      var calculatedTag = new byte[MAC_LEN];
+      authenticator(hmacKey, ciphertext, ciphertext.length - MAC_LEN, data, calculatedTag, 0);
+      var extractedTag =
+          Arrays.copyOfRange(ciphertext, ciphertext.length - MAC_LEN, ciphertext.length);
+      if (!MessageDigest.isEqual(extractedTag, calculatedTag)) {
         return null;
       }
 
@@ -107,6 +98,21 @@ class AEAD {
         | InvalidAlgorithmParameterException
         | IllegalBlockSizeException
         | BadPaddingException e) {
+      throw new UnsupportedOperationException(e);
+    }
+  }
+
+  // use the same AEAD construction from draft-mcgrew-aead-aes-cbc-hmac-sha2-05
+  private static void authenticator(
+      byte[] key, byte[] ctxt, int ctxLen, byte[] data, byte[] tag, int tagOffset) {
+    try {
+      var hmac = Mac.getInstance(MAC_ALG);
+      hmac.init(new SecretKeySpec(key, MAC_ALG));
+      hmac.update(data);
+      hmac.update(ctxt, 0, ctxLen);
+      hmac.update(Longs.toByteArray(data.length * 8L));
+      hmac.doFinal(tag, tagOffset);
+    } catch (NoSuchAlgorithmException | InvalidKeyException | ShortBufferException e) {
       throw new UnsupportedOperationException(e);
     }
   }
