@@ -8,18 +8,16 @@ Veil is an experiment with building a format for confidential, authentic multi-r
 which is indistinguishable from random noise by an attacker. Unlike e.g. GPG messages, Veil messages
 contain no metadata or format details which are not encrypted. As a result, a global passive
 adversary would be unable to gain any information from a Veil message beyond traffic analysis.
-Messages can be padded with random bytes to disguise their true length. It uses
-PBKDF2-HMAC-SHA-512/256 for key derivation, AES-256-CTR for confidentiality, HMAC-SHA512/256 for
-authentication, X448 for key agreement, and SHA-512/256 for integrity.
-
-(I'd like to have used HKDF, but Java doesn't include it.)
+Messages can be padded with random bytes to disguise their true length. It uses HKDF-SHA-512/256 for
+key derivation, AES-256-CTR for confidentiality, HMAC-SHA512/256 for authentication, X448 for key
+agreement, and SHA-512/256 for integrity.
 
 All encrypted packets consist of a 16-byte salt, a 16-byte nonce, an arbitrary number of bytes of
 data encrypted with AES-256-CTR, and a 32-byte HMAC-SHA512/256 digest of the length of any
 authenticated data as a 32-bit big-endian integer, any authenticated data, and the ciphertext.
-PBKDF2-HMAC-SHA-512/256 is used with the salt, the key, and 1024 iterations to produce 64 bytes of
-derived data, the first 32 bytes of which are used as the AES key and the second 32 bytes of which
-are used as the HMAC key.
+HKDF-SHA-512/256 is used with the salt, the key, and 1024 iterations to produce 64 bytes of derived
+data, the first 32 bytes of which are used as the AES key and the second 32 bytes of which are used
+as the HMAC key.
 
 A Veil message begins with a series of fixed-length encrypted headers, each of which contains a copy
 of the 32-byte session key, the number of total headers, the length of the plaintext message, and a
