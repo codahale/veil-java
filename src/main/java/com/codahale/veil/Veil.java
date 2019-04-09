@@ -41,21 +41,6 @@ public class Veil {
     return ECDH.generate();
   }
 
-  static byte[] random(int size) {
-    var buf = new byte[size];
-    RANDOM.nextBytes(buf);
-    return buf;
-  }
-
-  private static byte[] digest(byte[] message) {
-    try {
-      var digest = MessageDigest.getInstance(DIGEST_ALG);
-      return digest.digest(message);
-    } catch (NoSuchAlgorithmException e) {
-      throw new UnsupportedOperationException(e);
-    }
-  }
-
   public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding) {
     // generate a random session key
     var sessionKey = random(AEAD.KEY_LEN);
@@ -83,47 +68,32 @@ public class Veil {
     var encryptedPackets = out.toByteArray();
 
     // pad plaintext
-    var message = Arrays.copyOf(plaintext, plaintext.length + padding);
-    System.arraycopy(pad, 0, message, plaintext.length, pad.length);
+    var padded = Arrays.copyOf(plaintext, plaintext.length + padding);
+    System.arraycopy(pad, 0, padded, plaintext.length, pad.length);
 
     // encrypt with session key, using encrypted header packets as data
-    out.write(AEAD.encrypt(sessionKey, message, encryptedPackets));
+    out.write(AEAD.encrypt(sessionKey, padded, encryptedPackets));
 
     // header packets + encrypted message
     return out.toByteArray();
   }
 
   public Optional<byte[]> decrypt(PublicKey publicKey, byte[] ciphertext) {
-    var in = ByteStreams.newDataInput(ciphertext);
+    // generate shared secret
     var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
 
     // iterate through header packet-shaped things
-    var headerBuf = new byte[Header.LEN + AEAD.OVERHEAD];
-    Header header = null;
-    while (header == null) {
-      try {
-        in.readFully(headerBuf);
-      } catch (IllegalStateException e) {
-        return Optional.empty();
-      }
-
-      var buf = AEAD.decrypt(sharedKey, headerBuf, new byte[0]);
-      if (buf != null) {
-        header = Header.parse(buf);
-      }
+    var header = findHeader(sharedKey, ciphertext);
+    if (header == null) {
+      return Optional.empty();
     }
 
-    // rewind to beginning of file
-    in = ByteStreams.newDataInput(ciphertext);
-
-    // read headers and encrypted message
-    var headers = new byte[headerBuf.length * header.headerCount()];
-    var encMessage = new byte[ciphertext.length - headers.length];
-    in.readFully(headers);
-    in.readFully(encMessage);
+    // read whole headers and encrypted message
+    var headers = Arrays.copyOf(ciphertext, (Header.LEN + AEAD.OVERHEAD)* header.headerCount());
+    var encrypted = Arrays.copyOfRange(ciphertext, headers.length, ciphertext.length);
 
     // decrypt message
-    var padded = AEAD.decrypt(header.sessionKey(), encMessage, headers);
+    var padded = AEAD.decrypt(header.sessionKey(), encrypted, headers);
     if (padded == null) {
       return Optional.empty();
     }
@@ -138,5 +108,32 @@ public class Veil {
 
     // return authenticated plaintext
     return Optional.of(plaintext);
+  }
+
+  private Header findHeader(byte[] key, byte[] ciphertext) {
+    var buf = new byte[Header.LEN + AEAD.OVERHEAD];
+    for (int i = 0; i < ciphertext.length - buf.length; i += buf.length) {
+      System.arraycopy(ciphertext, i, buf, 0, buf.length);
+      var decrypted = AEAD.decrypt(key, buf, new byte[0]);
+      if (decrypted != null) {
+        return Header.parse(decrypted);
+      }
+    }
+    return null;
+  }
+
+  static byte[] random(int size) {
+    var buf = new byte[size];
+    RANDOM.nextBytes(buf);
+    return buf;
+  }
+
+  private static byte[] digest(byte[] message) {
+    try {
+      var digest = MessageDigest.getInstance(DIGEST_ALG);
+      return digest.digest(message);
+    } catch (NoSuchAlgorithmException e) {
+      throw new UnsupportedOperationException(e);
+    }
   }
 }
