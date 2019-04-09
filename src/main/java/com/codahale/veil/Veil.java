@@ -15,51 +15,42 @@
  */
 package com.codahale.veil;
 
-import com.codahale.xsalsa20poly1305.Keys;
-import com.codahale.xsalsa20poly1305.SimpleBox;
 import com.google.common.io.ByteStreams;
-import java.security.SecureRandom;
-import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
-import org.bouncycastle.math.ec.rfc8032.Ed25519;
 
 public class Veil {
 
-  private static final int OVERHEAD = 40;
   private static final int HEADER_LEN = 8;
-  private static final int KEY_LEN = 32;
-  private static final int SIG_LEN = 64;
 
-  private final PrivateKey privateKey;
+  private final PrivateKeyPair privateKeys;
 
-  public Veil(PrivateKey privateKey) {
-    this.privateKey = privateKey;
+  public Veil(PrivateKeyPair privateKeys) {
+    this.privateKeys = privateKeys;
   }
 
-  public byte[] encrypt(Collection<PublicKey> publicKeys, byte[] plaintext, int padding) {
-    var sk = Keys.generateSecretKey();
-    var session = new SimpleBox(sk);
+  public byte[] encrypt(List<PublicKeyPair> publicKeys, byte[] plaintext, int padding) {
+    var sk = Crypto.random(Crypto.KEY_LENGTH);
 
     // generate random padding
-    var pad = new byte[padding];
-    if (padding > 0) {
-      var r = new SecureRandom();
-      r.nextBytes(pad);
-    }
+    var pad = Crypto.random(padding);
 
     // encode and encrypt header
-    var dataOffset = publicKeys.size() * (KEY_LEN + OVERHEAD);
-    var dataLength = plaintext.length + SIG_LEN;
+    var dataOffset = publicKeys.size() * (Crypto.KEY_LENGTH + Crypto.OVERHEAD);
+    var dataLength = plaintext.length + Crypto.SIG_LENGTH;
     var headerBuf = ByteStreams.newDataOutput(8);
     headerBuf.writeInt(dataOffset);
     headerBuf.writeInt(dataLength);
-    var header = session.seal(headerBuf.toByteArray());
+    var header = Crypto.encrypt(sk, headerBuf.toByteArray(), new byte[0]);
 
-    // encrypt a copy of the session key with each public key
+    // encrypt a copy of the session key with the shared secret for each public key
     var keysBuf = ByteStreams.newDataOutput(dataOffset);
-    for (var pk : publicKeys) {
-      var shared = new SimpleBox(pk.encryptionKey(), privateKey.decryptionKey());
-      keysBuf.write(shared.seal(sk));
+    var sharedKeys = new byte[publicKeys.size()][];
+    for (int i = 0; i < publicKeys.size(); i++) {
+      var publicKey = publicKeys.get(i).encryptionKey();
+      var sharedKey = Crypto.sharedSecret(privateKeys.decryptionKey(), publicKey);
+      keysBuf.write(Crypto.encrypt(sharedKey, sk, new byte[0]));
+      sharedKeys[i] = sharedKey;
     }
     var keys = keysBuf.toByteArray();
 
@@ -70,13 +61,13 @@ public class Veil {
     signed.write(keys);
     signed.write(plaintext);
     signed.write(pad);
-    var sig = sign(signed.toByteArray());
+    var sig = Crypto.sign(privateKeys.signingKey(), signed.toByteArray());
 
     // encrypt the plaintext and the signature
     var data = ByteStreams.newDataOutput();
     data.write(sig);
     data.write(plaintext);
-    var encData = session.seal(data.toByteArray());
+    var encData = Crypto.encrypt(sk, data.toByteArray(), new byte[0]);
 
     // return the encrypted header, the encrypted keys, and the encrypted plaintext and signature
     var out = ByteStreams.newDataOutput(header.length + keys.length + encData.length + padding);
@@ -87,26 +78,26 @@ public class Veil {
     return out.toByteArray();
   }
 
-  public Optional<byte[]> decrypt(PublicKey publicKey, byte[] ciphertext) {
-    var shared = new SimpleBox(publicKey.encryptionKey(), privateKey.decryptionKey());
+  public Optional<byte[]> decrypt(PublicKeyPair publicKey, byte[] ciphertext) {
+    var shared = Crypto.sharedSecret(privateKeys.decryptionKey(), publicKey.encryptionKey());
     var in = ByteStreams.newDataInput(ciphertext);
     var rem = ciphertext.length;
 
     // copy the fixed-length header
-    var encHeader = new byte[HEADER_LEN + OVERHEAD];
+    var encHeader = new byte[HEADER_LEN + Crypto.OVERHEAD];
     in.readFully(encHeader);
     rem -= encHeader.length;
 
     // iterate through key-sized chunks looking for our session key
-    SimpleBox session = null;
-    var key = new byte[KEY_LEN + OVERHEAD];
+    byte[] session = null;
+    var key = new byte[Crypto.KEY_LENGTH + Crypto.OVERHEAD];
     while (rem > key.length) {
       in.readFully(key);
       rem -= key.length;
 
-      final Optional<byte[]> result = shared.open(key);
-      if (result.isPresent()) {
-        session = new SimpleBox(result.get());
+      var result = Crypto.decrypt(shared, key, new byte[0]);
+      if (result != null) {
+        session = result;
         break;
       }
     }
@@ -115,16 +106,16 @@ public class Veil {
     }
 
     // decrypt the header
-    var hdr = session.open(encHeader);
-    if (!hdr.isPresent()) {
+    var hdr = Crypto.decrypt(session, encHeader, new byte[0]);
+    if (hdr == null) {
       return Optional.empty();
     }
-    var header = ByteStreams.newDataInput(hdr.get());
+    var header = ByteStreams.newDataInput(hdr);
     var dataOffset = header.readInt();
     var dataLength = header.readInt();
 
     // skip the other keys
-    int keyLen = (dataOffset + HEADER_LEN + OVERHEAD) - (ciphertext.length - rem);
+    int keyLen = (dataOffset + HEADER_LEN + Crypto.OVERHEAD) - (ciphertext.length - rem);
     while (keyLen > 0) {
       var x = in.skipBytes(keyLen);
       keyLen -= x;
@@ -132,42 +123,32 @@ public class Veil {
     }
 
     // decrypt the data and signature
-    var encData = new byte[dataLength + OVERHEAD];
+    var encData = new byte[dataLength + Crypto.OVERHEAD];
     in.readFully(encData);
     rem -= encData.length;
 
     var padding = new byte[rem];
     in.readFully(padding);
-    var data = session.open(encData);
-    if (!data.isPresent()) {
+    var data = Crypto.decrypt(session, encData, new byte[0]);
+    if (data == null) {
       return Optional.empty();
     }
-    var dataBuf = ByteStreams.newDataInput(data.get());
-    var sig = new byte[SIG_LEN];
+    var dataBuf = ByteStreams.newDataInput(data);
+    var sig = new byte[Crypto.SIG_LENGTH];
     dataBuf.readFully(sig);
-    var plaintext = new byte[dataLength - SIG_LEN];
+    var plaintext = new byte[dataLength - Crypto.SIG_LENGTH];
     dataBuf.readFully(plaintext);
 
     // rebuild the signed data and verify the signature
     var signed = ByteStreams.newDataOutput(ciphertext.length + plaintext.length + padding.length);
-    signed.write(ciphertext, 0, HEADER_LEN + OVERHEAD + dataOffset);
+    signed.write(ciphertext, 0, HEADER_LEN + Crypto.OVERHEAD + dataOffset);
     signed.write(plaintext);
     signed.write(padding);
-    if (!verify(publicKey, signed.toByteArray(), sig)) {
+    if (!Crypto.verify(publicKey.verificationKey(), signed.toByteArray(), sig)) {
       return Optional.empty();
     }
 
     // return the plaintext
     return Optional.of(plaintext);
-  }
-
-  private byte[] sign(byte[] signed) {
-    var signature = new byte[Ed25519.SIGNATURE_SIZE];
-    Ed25519.sign(privateKey.signingKey(), 0, signed, 0, signed.length, signature, 0);
-    return signature;
-  }
-
-  private boolean verify(PublicKey publicKey, byte[] signed, byte[] sig) {
-    return Ed25519.verify(sig, 0, publicKey.verificationKey(), 0, signed, 0, signed.length);
   }
 }
