@@ -19,6 +19,9 @@ HKDF-SHA-512/256 is used with the salt, the key, and 1024 iterations to produce 
 data, the first 32 bytes of which are used as the AES key and the second 32 bytes of which are used
 as the HMAC key.
 
+AES-CTR and HMAC were selected for their indistinguishability from random noise. Polynomial
+authenticators like GCM and Poly1305 have internal biases.
+
 A Veil message begins with a series of fixed-length encrypted headers, each of which contains a copy
 of the 32-byte session key, the number of total headers, the length of the plaintext message, and a
 SHA-512/256 digest of the plaintext message. Following the headers is an encrypted packet containing
