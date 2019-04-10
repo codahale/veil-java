@@ -2,7 +2,6 @@ package com.codahale.veil;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Random;
 import org.junit.jupiter.api.Test;
@@ -19,12 +18,11 @@ public class AEADTest {
 
   @Test
   void symmetricEncryption() {
-    var key = "blorp".getBytes(StandardCharsets.UTF_8);
-    var plaintext = "blah".getBytes(StandardCharsets.UTF_8);
-    var data = new byte[] {1, 2, 3};
+    var key = Veil.random(AEAD.KEY_LEN);
+    var plaintext = Veil.random(1024);
+    var data = Veil.random(1024);
     var ciphertext = AEAD.encrypt(key, plaintext, data);
     assertThat(AEAD.decrypt(key, ciphertext, data)).isEqualTo(plaintext);
-    assertThat(AEAD.decrypt(corrupt(key), ciphertext, data)).isNull();
     assertThat(AEAD.decrypt(key, corrupt(ciphertext), data)).isNull();
     assertThat(AEAD.decrypt(key, ciphertext, corrupt(data))).isNull();
   }
