@@ -16,12 +16,16 @@
 package com.codahale.veil;
 
 import com.google.common.io.ByteStreams;
+import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +43,26 @@ public class Veil {
 
   public static KeyPair generate() {
     return ECDH.generate();
+  }
+
+  public static PrivateKey parsePrivateKey(byte[] pkcs8) throws InvalidKeySpecException {
+    try {
+      var spec = new PKCS8EncodedKeySpec(pkcs8, ECDH.DH_ALG);
+      var factory = KeyFactory.getInstance(ECDH.DH_ALG);
+      return factory.generatePrivate(spec);
+    } catch (NoSuchAlgorithmException e) {
+      throw new UnsupportedOperationException(e);
+    }
+  }
+
+  public static PublicKey parsePublicKey(byte[] x509) throws InvalidKeySpecException {
+    try {
+      var spec = new X509EncodedKeySpec(x509, ECDH.DH_ALG);
+      var factory = KeyFactory.getInstance(ECDH.DH_ALG);
+      return factory.generatePublic(spec);
+    } catch (NoSuchAlgorithmException e) {
+      throw new UnsupportedOperationException(e);
+    }
   }
 
   public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding) {

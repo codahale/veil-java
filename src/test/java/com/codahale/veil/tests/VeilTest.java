@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.codahale.veil.Veil;
 import java.nio.charset.StandardCharsets;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
@@ -52,5 +53,13 @@ class VeilTest {
     for (int i = 0; i < 1_000; i++) {
       assertThat(v.decrypt(a.getPublic(), corrupt(c1))).isEmpty();
     }
+  }
+
+  @Test
+  void parsingKeys() throws InvalidKeySpecException {
+    var a = Veil.generate();
+
+    assertThat(Veil.parsePrivateKey(a.getPrivate().getEncoded())).isEqualTo(a.getPrivate());
+    assertThat(Veil.parsePublicKey(a.getPublic().getEncoded())).isEqualTo(a.getPublic());
   }
 }

@@ -10,7 +10,7 @@ import javax.crypto.KeyAgreement;
 
 class ECDH {
 
-  private static final String DH_ALG = "X448";
+  static final String DH_ALG = "X448";
 
   static KeyPair generate() {
     try {
