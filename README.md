@@ -26,6 +26,13 @@ HMAC-SHA-512/256 is used to hash the authenticated data, the ciphertext, and the
 authenticated data encoded as a 64-bit big-endian value. The nonce, ciphertext, and HMAC digest are
 concatenated and returned.
 
+This is similar to the
+[draft-mcgrew-aead-aes-cbc-hmac-sha2-05](https://www.ietf.org/archive/id/draft-mcgrew-aead-aes-cbc-hmac-sha2-05.txt)
+construction or the [encrypt-then-authenticate
+construction](https://github.com/google/tink/blob/master/java/src/main/java/com/google/crypto/tink/subtle/EncryptThenAuthenticate.java)
+in Tink, with the exception that the two subkeys are derived via HKDF from the initial key using a
+nonce. As a result, no two ciphertexts will share the same AES or HMAC keys.
+
 ## Message Construction
 
 A Veil message begins with a series of fixed-length encrypted headers, each of which contains a copy
