@@ -14,9 +14,6 @@ analysis. Messages can be padded with random bytes to disguise their true length
 AES-256-CTR for confidentiality, HMAC-SHA-512/256 for authentication, X448 for key agreement,
 HKDF-SHA-512/256 for key derivation, and SHA-512/256 for integrity.
 
-AES-CTR and HMAC were selected for their indistinguishability from random noise. Polynomial
-authenticators like GCM and Poly1305 have internal biases.
-
 ## Key Agreement
 
 Shared secrets are generated using X448 ECDH, then HKDF-SHA-512/256 is used to derive a 64-byte key.
@@ -36,6 +33,9 @@ the [encrypt-then-authenticate
 construction](https://github.com/google/tink/blob/master/java/src/main/java/com/google/crypto/tink/subtle/EncryptThenAuthenticate.java)
 in Tink.
 
+AES-CTR and HMAC were selected for their indistinguishability from random noise. Unlike polynomial
+authenticators like GCM and Poly1305, the outputs of AES-CTR and HMAC are uniformly distributed.
+
 ## Message Construction
 
 A Veil message begins with a series of fixed-length encrypted headers, each of which contains a copy
@@ -52,7 +52,9 @@ recovered plaintext is compared to the digest contained in the header.
 ## What's the point
 
 1. Veil messages can be read by all of the intended recipients. None of the recipients can modify
-   the message or forge additional messages without being able to forge an encrypted header.
+   the message or forge additional messages without being able to forge encrypted headers for the
+   other recipients (i.e., break X448) or find a message with the same SHA-512/256 digest (i.e. 
+   break SHA2).
 2. Veil messages are tamper-proof. If a single bit of the entire message is changed, all of the
    recipients will know.
 3. Veil messages are non-repudiable.
