@@ -35,8 +35,8 @@ class VeilTest {
     var plaintext = "this is super cool".getBytes(StandardCharsets.UTF_8);
 
     var keys = Arrays.asList(a.getPublic(), b.getPublic(), c.getPublic());
-    var c1 = new Veil(a.getPrivate()).encrypt(keys, plaintext, 1000);
-    var c2 = new Veil(a.getPrivate()).encrypt(keys, plaintext, 2000);
+    var c1 = new Veil(a.getPrivate()).encrypt(keys, plaintext, 1000, 5);
+    var c2 = new Veil(a.getPrivate()).encrypt(keys, plaintext, 2000, 5);
 
     assertThat(c2.length - c1.length).isEqualTo(1000);
 

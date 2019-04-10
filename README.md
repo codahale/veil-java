@@ -39,10 +39,10 @@ authenticators like GCM and Poly1305, the outputs of AES-CTR and HMAC are unifor
 ## Message Construction
 
 A Veil message begins with a series of fixed-length encrypted headers, each of which contains a copy
-of the 32-byte session key, the number of total headers, the length of the plaintext message, and a
-SHA-512/256 digest of the plaintext message. Following the headers is an encrypted packet containing
-the message plus an arbitrary number of random padding bytes, using the full set of encrypted
-headers as authenticated data.
+of the 32-byte session key, the offset in bytes where the message begins, the length of the
+plaintext message in bytes, and a SHA-512/256 digest of the plaintext message. Following the headers
+is an encrypted packet containing the message plus an arbitrary number of random padding bytes,
+using the full set of encrypted headers as authenticated data.
 
 To decrypt a message, the recipient iterates through the message, searching for a decryptable header
 using the shared secret between sender and recipient. When a header is successfully decrypted, the
@@ -61,3 +61,5 @@ recovered plaintext is compared to the digest contained in the header.
 4. Veil messages are indistinguishable from random noise, revealing no metadata about recipients'
    identities, number of recipients, etc.
 5. Veil messages can be padded, obscuring a message's actual length.
+6. The number of recipients in a Veil message can be obscured from recipients by adding blocks of 
+   random noise instead of encrypted headers.

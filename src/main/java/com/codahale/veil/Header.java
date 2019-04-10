@@ -5,13 +5,13 @@ import com.google.common.io.ByteStreams;
 class Header {
   static final int LEN = AEAD.KEY_LEN + 4 + 4 + Veil.DIGEST_LEN;
   private final byte[] sessionKey;
-  private final int headerCount;
+  private final int messageOffset;
   private final int messageLen;
   private final byte[] digest;
 
-  Header(byte[] sessionKey, int headerCount, int messageLen, byte[] digest) {
+  Header(byte[] sessionKey, int messageOffset, int messageLen, byte[] digest) {
     this.sessionKey = sessionKey;
-    this.headerCount = headerCount;
+    this.messageOffset = messageOffset;
     this.messageLen = messageLen;
     this.digest = digest;
   }
@@ -32,8 +32,8 @@ class Header {
     return sessionKey;
   }
 
-  int headerCount() {
-    return headerCount;
+  int messageOffset() {
+    return messageOffset;
   }
 
   int messageLen() {
@@ -47,7 +47,7 @@ class Header {
   byte[] toByteArray() {
     var out = ByteStreams.newDataOutput();
     out.write(sessionKey);
-    out.writeInt(headerCount);
+    out.writeInt(messageOffset);
     out.writeInt(messageLen);
     out.write(digest);
     return out.toByteArray();

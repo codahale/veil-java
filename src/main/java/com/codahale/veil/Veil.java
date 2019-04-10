@@ -26,7 +26,9 @@ import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -65,7 +67,8 @@ public class Veil {
     }
   }
 
-  public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding) {
+  public byte[] encrypt(
+      List<PublicKey> publicKeys, byte[] plaintext, int padding, int fakeRecipients) {
     // generate a random session key
     var sessionKey = random(AEAD.KEY_LEN);
 
@@ -83,11 +86,20 @@ public class Veil {
                 + padding
                 + AEAD.OVERHEAD);
 
-    // create encrypted headers
-    for (var publicKey : publicKeys) {
-      var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
-      var packet = new Header(sessionKey, publicKeys.size(), plaintext.length, digest);
-      out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), new byte[0]));
+    // create a list of real and fake recipients, shuffled with a SecureRandom
+    var messageOffset = (fakeRecipients + publicKeys.size()) * (Header.LEN + AEAD.OVERHEAD);
+
+    // write headers
+    for (var publicKey : addFakes(publicKeys, fakeRecipients)) {
+      if (publicKey == null) {
+        // just write a random header-length block for fake recipients
+        out.write(random(Header.LEN + AEAD.OVERHEAD));
+      } else {
+        // generate, encrypt, and write header
+        var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
+        var packet = new Header(sessionKey, messageOffset, plaintext.length, digest);
+        out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), new byte[0]));
+      }
     }
     var headers = out.toByteArray();
 
@@ -113,7 +125,7 @@ public class Veil {
     }
 
     // read whole headers and encrypted message
-    var headers = Arrays.copyOf(ciphertext, (Header.LEN + AEAD.OVERHEAD)* header.headerCount());
+    var headers = Arrays.copyOf(ciphertext, header.messageOffset());
     var encrypted = Arrays.copyOfRange(ciphertext, headers.length, ciphertext.length);
 
     // decrypt message using encrypted headers as authenticated data
@@ -132,6 +144,15 @@ public class Veil {
 
     // return authenticated plaintext
     return Optional.of(plaintext);
+  }
+
+  private List<PublicKey> addFakes(List<PublicKey> publicKeys, int fakes) {
+    var withFakes = new ArrayList<>(publicKeys);
+    for (int i = 0; i < fakes; i++) {
+      withFakes.add(null);
+    }
+    Collections.shuffle(withFakes, RANDOM);
+    return withFakes;
   }
 
   private Header findHeader(byte[] key, byte[] ciphertext) {
