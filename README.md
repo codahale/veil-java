@@ -4,23 +4,29 @@ _Stupid crypto tricks._
 
 **You should, under no circumstances, use this.**
 
-Veil is an experiment with building a format for confidential, authentic multi-recipient messages
-which is indistinguishable from random noise by an attacker. Unlike e.g. GPG messages, Veil messages
-contain no metadata or format details which are not encrypted. As a result, a global passive
-adversary would be unable to gain any information from a Veil message beyond traffic analysis.
-Messages can be padded with random bytes to disguise their true length. It uses HKDF-SHA-512/256 for
-key derivation, AES-256-CTR for confidentiality, HMAC-SHA512/256 for authentication, X448 for key
-agreement, and SHA-512/256 for integrity.
+## What is Veil?
 
-All encrypted packets consist of a 16-byte salt, a 16-byte nonce, an arbitrary number of bytes of
-data encrypted with AES-256-CTR, and a 32-byte HMAC-SHA512/256 digest of the length of any
-authenticated data as a 32-bit big-endian integer, any authenticated data, and the ciphertext.
-HKDF-SHA-512/256 is used with the salt, the key, and 1024 iterations to produce 64 bytes of derived
-data, the first 32 bytes of which are used as the AES key and the second 32 bytes of which are used
-as the HMAC key.
+Veil is an experiment with building a format for confidential, authentic multi-recipient messages
+which are indistinguishable from random noise by an attacker. Unlike e.g. GPG messages, Veil
+messages contain no metadata or format details which are not encrypted. As a result, a global
+passive adversary would be unable to gain any information from a Veil message beyond traffic
+analysis. Messages can be padded with random bytes to disguise their true length. It uses
+HKDF-SHA-512/256 for key derivation, AES-256-CTR for confidentiality, HMAC-SHA512/256 for
+authentication, X448 for key agreement, and SHA-512/256 for integrity.
 
 AES-CTR and HMAC were selected for their indistinguishability from random noise. Polynomial
 authenticators like GCM and Poly1305 have internal biases.
+
+## AEAD Construction
+
+Given a secret of arbitrary length, HKDF-SHA-512/256 and a 32-byte random nonce are used to generate
+64 bytes of derived data. The first 32 bytes are used as an AES-256-CTR key; the last 32 bytes are
+used as an HMAC-SHA-512/256 key. The plaintext is encrypted with AES-256-CTR with an all-zero IV.
+HMAC-SHA-512/256 is used to hash the authenticated data, the ciphertext, and the number of bits of
+authenticated data encoded as a 64-bit big-endian value. The nonce, ciphertext, and HMAC digest are
+concatenated and returned.
+
+## Message Construction
 
 A Veil message begins with a series of fixed-length encrypted headers, each of which contains a copy
 of the 32-byte session key, the number of total headers, the length of the plaintext message, and a
@@ -28,10 +34,10 @@ SHA-512/256 digest of the plaintext message. Following the headers is an encrypt
 the message plus an arbitrary number of random padding bytes, using the full set of encrypted
 headers as authenticated data.
 
-To decrypt a message, the recipient traverses the message, searching for a decryptable header using
-the shared secret between sender and recipient. When a header is decrypted, the session key is used
-to decrypt the encrypted message, padding is removed, and the digest of the recovered plaintext is
-compared to the digest contained in the header.
+To decrypt a message, the recipient iterates through the message, searching for a decryptable header
+using the shared secret between sender and recipient. When a header is successfully decrypted, the
+session key is used to decrypt the encrypted message, the padding is removed, and the digest of the
+recovered plaintext is compared to the digest contained in the header.
 
 ## What's the point
 

@@ -19,43 +19,41 @@ import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
 import org.bouncycastle.crypto.params.HKDFParameters;
 
 class AEAD {
+
   static final int KEY_LEN = 32;
-  private static final int NONCE_LEN = 16;
+  private static final int NONCE_LEN = 32;
   private static final int MAC_LEN = 32;
   static final int OVERHEAD = NONCE_LEN + NONCE_LEN + MAC_LEN;
   private static final String MAC_ALG = "HmacSHA512/256";
   private static final String ENC_ALG = "AES/CTR/NoPadding";
   private static final String ENC_KEY_ALG = "AES";
+  private static final byte[] ZERO_IV = new byte[16];
 
   static byte[] encrypt(byte[] key, byte[] plaintext, byte[] data) {
     try {
       // preallocate the output
-      var out = new byte[NONCE_LEN + NONCE_LEN + plaintext.length + MAC_LEN];
-
-      // generate a random salt
-      var salt = Veil.random(NONCE_LEN);
-      System.arraycopy(salt, 0, out, 0, NONCE_LEN);
-
-      // derive subkeys from key and salt
-      var encKey = new byte[KEY_LEN];
-      var hmacKey = new byte[KEY_LEN];
-      generateSubkeys(key, salt, encKey, hmacKey);
+      var out = new byte[NONCE_LEN + plaintext.length + MAC_LEN];
 
       // generate a random nonce
       var nonce = Veil.random(NONCE_LEN);
-      System.arraycopy(nonce, 0, out, NONCE_LEN, NONCE_LEN);
+      System.arraycopy(nonce, 0, out, 0, NONCE_LEN);
 
-      // encrypt the plaintext w/ AES-CTR-256
+      // derive subkeys from key and nonce
+      var encKey = new byte[KEY_LEN];
+      var hmacKey = new byte[KEY_LEN];
+      generateSubkeys(key, nonce, encKey, hmacKey);
+
+      // encrypt the plaintext w/ AES-CTR-256 and an all-zero IV
       var cipher = Cipher.getInstance(ENC_ALG);
-      final IvParameterSpec ivSpec = new IvParameterSpec(nonce, 0, NONCE_LEN);
+      final IvParameterSpec ivSpec = new IvParameterSpec(ZERO_IV, 0, ZERO_IV.length);
       cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(encKey, ENC_KEY_ALG), ivSpec);
-      cipher.doFinal(plaintext, 0, plaintext.length, out, NONCE_LEN + NONCE_LEN);
+      cipher.doFinal(plaintext, 0, plaintext.length, out, NONCE_LEN);
 
-      // calculate the AEAD tag
-      var len = NONCE_LEN + NONCE_LEN + plaintext.length;
-      authenticator(hmacKey, out, len, data, out, len);
+      // calculate the mac
+      var len = NONCE_LEN + plaintext.length;
+      mac(hmacKey, out, len, data, out, len);
 
-      // return salt + nonce + ciphertext + tag
+      // return nonce + ciphertext + mac
       return out;
     } catch (NoSuchAlgorithmException
         | NoSuchPaddingException
@@ -71,27 +69,25 @@ class AEAD {
   static byte[] decrypt(byte[] key, byte[] ciphertext, byte[] data) {
     try {
       // generate the subkeys
-      var salt = Arrays.copyOfRange(ciphertext, 0, NONCE_LEN);
+      var nonce = Arrays.copyOfRange(ciphertext, 0, NONCE_LEN);
       var encKey = new byte[KEY_LEN];
       var hmacKey = new byte[KEY_LEN];
-      generateSubkeys(key, salt, encKey, hmacKey);
+      generateSubkeys(key, nonce, encKey, hmacKey);
 
-      // calculate the AEAD tag and compare
-      var calculatedTag = new byte[MAC_LEN];
-      authenticator(hmacKey, ciphertext, ciphertext.length - MAC_LEN, data, calculatedTag, 0);
-      var extractedTag =
-          Arrays.copyOfRange(ciphertext, ciphertext.length - MAC_LEN, ciphertext.length);
-      if (!MessageDigest.isEqual(extractedTag, calculatedTag)) {
+      // calculate the AEAD mac and compare
+      var calculatedMac = new byte[MAC_LEN];
+      mac(hmacKey, ciphertext, ciphertext.length - MAC_LEN, data, calculatedMac, 0);
+      var extractedMac = new byte[MAC_LEN];
+      System.arraycopy(ciphertext, ciphertext.length - MAC_LEN, extractedMac, 0, MAC_LEN);
+      if (!MessageDigest.isEqual(extractedMac, calculatedMac)) {
         return null;
       }
 
       // decrypt ciphertext
-      var nonce = Arrays.copyOfRange(ciphertext, NONCE_LEN, NONCE_LEN + NONCE_LEN);
       var cipher = Cipher.getInstance(ENC_ALG);
-      var params = new IvParameterSpec(nonce, 0, NONCE_LEN);
+      var params = new IvParameterSpec(ZERO_IV, 0, ZERO_IV.length);
       cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(encKey, ENC_KEY_ALG), params);
-      return cipher.doFinal(
-          ciphertext, NONCE_LEN + NONCE_LEN, ciphertext.length - NONCE_LEN - NONCE_LEN - MAC_LEN);
+      return cipher.doFinal(ciphertext, NONCE_LEN, ciphertext.length - NONCE_LEN - MAC_LEN);
     } catch (NoSuchAlgorithmException
         | InvalidKeyException
         | NoSuchPaddingException
@@ -103,23 +99,22 @@ class AEAD {
   }
 
   // use the same AEAD construction from draft-mcgrew-aead-aes-cbc-hmac-sha2-05
-  private static void authenticator(
-      byte[] key, byte[] ctxt, int ctxLen, byte[] data, byte[] tag, int tagOffset) {
+  private static void mac(byte[] key, byte[] ctxt, int ctxLen, byte[] ad, byte[] out, int outOff) {
     try {
       var hmac = Mac.getInstance(MAC_ALG);
       hmac.init(new SecretKeySpec(key, MAC_ALG));
-      hmac.update(data);
+      hmac.update(ad);
       hmac.update(ctxt, 0, ctxLen);
-      hmac.update(Longs.toByteArray(data.length * 8L));
-      hmac.doFinal(tag, tagOffset);
+      hmac.update(Longs.toByteArray(ad.length * 8L));
+      hmac.doFinal(out, outOff);
     } catch (NoSuchAlgorithmException | InvalidKeyException | ShortBufferException e) {
       throw new UnsupportedOperationException(e);
     }
   }
 
-  private static void generateSubkeys(byte[] key, byte[] salt, byte[] encKey, byte[] hmacKey) {
+  private static void generateSubkeys(byte[] key, byte[] nonce, byte[] encKey, byte[] hmacKey) {
     var hkdf = new HKDFBytesGenerator(new SHA512tDigest(256));
-    hkdf.init(new HKDFParameters(key, salt, null));
+    hkdf.init(new HKDFParameters(key, nonce, null));
     hkdf.generateBytes(encKey, 0, encKey.length);
     hkdf.generateBytes(hmacKey, 0, hmacKey.length);
   }
