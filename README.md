@@ -17,7 +17,9 @@ HKDF-SHA-512/256 for key derivation, and SHA-512/256 for integrity.
 ## Key Agreement
 
 Shared secrets are generated using X448 ECDH, then HKDF-SHA-512/256 is used to derive a 64-byte key.
-The static value `{0x76, 0x65, 0x69, 0x6C}` is used as the information input for HKDF.
+The sender and recipient's public keys are encoded as X.509 public keys, concatenated, and used as
+the salt for HKDF. The static value `{0x76, 0x65, 0x69, 0x6C}` is used as the information input for
+HKDF. As a result, the derived key is unique to the two parties using Veil.
 
 ## AEAD Construction
 

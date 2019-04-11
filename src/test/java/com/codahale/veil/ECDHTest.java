@@ -11,8 +11,8 @@ class ECDHTest {
     var a = ECDH.generate();
     var b = ECDH.generate();
 
-    var keyA = ECDH.sharedSecret(a.getPrivate(), b.getPublic());
-    var keyB = ECDH.sharedSecret(b.getPrivate(), a.getPublic());
+    var keyA = ECDH.sharedSecret(a, b.getPublic(), true);
+    var keyB = ECDH.sharedSecret(b, a.getPublic(), false);
 
     assertThat(keyA).isEqualTo(keyB).hasSize(AEAD.KEY_LEN);
   }

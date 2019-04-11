@@ -38,10 +38,10 @@ public class Veil {
   static final int DIGEST_LEN = 32;
   private static final SecureRandom RANDOM = new SecureRandom();
   private static final String DIGEST_ALG = "SHA-512/256";
-  private final PrivateKey privateKey;
+  private final KeyPair keyPair;
 
-  public Veil(PrivateKey privateKey) {
-    this.privateKey = privateKey;
+  public Veil(KeyPair keyPair) {
+    this.keyPair = keyPair;
   }
 
   public static KeyPair generate() {
@@ -96,7 +96,7 @@ public class Veil {
         out.write(random(Header.LEN + AEAD.OVERHEAD));
       } else {
         // generate, encrypt, and write header
-        var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
+        var sharedKey = ECDH.sharedSecret(keyPair, publicKey, true);
         var packet = new Header(sessionKey, messageOffset, plaintext.length, digest);
         out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), null));
       }
@@ -116,7 +116,7 @@ public class Veil {
 
   public Optional<byte[]> decrypt(PublicKey publicKey, byte[] ciphertext) {
     // generate shared secret
-    var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
+    var sharedKey = ECDH.sharedSecret(keyPair, publicKey, false);
 
     // iterate through headers looking for one we can decrypt
     var header = findHeader(sharedKey, ciphertext);

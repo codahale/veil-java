@@ -36,21 +36,21 @@ class VeilTest {
     var plaintext = "this is super cool".getBytes(StandardCharsets.UTF_8);
 
     var keys = Arrays.asList(a.getPublic(), b.getPublic(), c.getPublic());
-    var c1 = new Veil(a.getPrivate()).encrypt(keys, plaintext, 1000, 5);
-    var c2 = new Veil(a.getPrivate()).encrypt(keys, plaintext, 2000, 5);
+    var c1 = new Veil(a).encrypt(keys, plaintext, 1000, 5);
+    var c2 = new Veil(a).encrypt(keys, plaintext, 2000, 5);
 
     assertThat(c2.length - c1.length).isEqualTo(1000);
 
-    var p1 = new Veil(a.getPrivate()).decrypt(a.getPublic(), c1);
+    var p1 = new Veil(a).decrypt(a.getPublic(), c1);
     assertThat(p1).contains(plaintext);
 
-    var p2 = new Veil(b.getPrivate()).decrypt(a.getPublic(), c1);
+    var p2 = new Veil(b).decrypt(a.getPublic(), c1);
     assertThat(p2).contains(plaintext);
 
-    var p3 = new Veil(c.getPrivate()).decrypt(a.getPublic(), c1);
+    var p3 = new Veil(c).decrypt(a.getPublic(), c1);
     assertThat(p3).contains(plaintext);
 
-    var v = new Veil(b.getPrivate());
+    var v = new Veil(b);
     for (int i = 0; i < 1_000; i++) {
       assertThat(v.decrypt(a.getPublic(), corrupt(c1))).isEmpty();
     }
@@ -64,9 +64,9 @@ class VeilTest {
     var c = Veil.generate();
     var plaintext = "this is super cool".getBytes(StandardCharsets.UTF_8);
     var keys = Arrays.asList(a.getPublic(), b.getPublic(), c.getPublic());
-    var ciphertext = new Veil(a.getPrivate()).encrypt(keys, plaintext, 1000, 5);
+    var ciphertext = new Veil(a).encrypt(keys, plaintext, 1000, 5);
 
-    var recovered = new Veil(b.getPrivate()).decrypt(keys, ciphertext);
+    var recovered = new Veil(b).decrypt(keys, ciphertext);
     assertThat(recovered)
         .isPresent()
         .get()
