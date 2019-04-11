@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public class Veil {
@@ -145,7 +146,17 @@ public class Veil {
     return Optional.of(plaintext);
   }
 
-  private List<PublicKey> addFakes(List<PublicKey> publicKeys, int fakes) {
+  public Optional<Map.Entry<PublicKey, byte[]>> decrypt(List<PublicKey> publicKeys, byte[] ciphertext) {
+    for (PublicKey publicKey : publicKeys) {
+      var plaintext = decrypt(publicKey, ciphertext);
+      if (plaintext.isPresent()) {
+        return plaintext.map(b -> Map.entry(publicKey, b));
+      }
+    }
+    return Optional.empty();
+  }
+
+    private List<PublicKey> addFakes(List<PublicKey> publicKeys, int fakes) {
     var withFakes = new ArrayList<>(publicKeys);
     for (int i = 0; i < fakes; i++) {
       withFakes.add(null);

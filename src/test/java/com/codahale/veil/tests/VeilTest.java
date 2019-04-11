@@ -22,6 +22,7 @@ import com.codahale.veil.Veil;
 import java.nio.charset.StandardCharsets;
 import java.security.spec.InvalidKeySpecException;
 import java.util.Arrays;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class VeilTest {
@@ -53,6 +54,24 @@ class VeilTest {
     for (int i = 0; i < 1_000; i++) {
       assertThat(v.decrypt(a.getPublic(), corrupt(c1))).isEmpty();
     }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void multidecrypt() {
+    var a = Veil.generate();
+    var b = Veil.generate();
+    var c = Veil.generate();
+    var plaintext = "this is super cool".getBytes(StandardCharsets.UTF_8);
+    var keys = Arrays.asList(a.getPublic(), b.getPublic(), c.getPublic());
+    var ciphertext = new Veil(a.getPrivate()).encrypt(keys, plaintext, 1000, 5);
+
+    var recovered = new Veil(b.getPrivate()).decrypt(keys, ciphertext);
+    assertThat(recovered)
+        .isPresent()
+        .get()
+        .extracting(Map.Entry::getKey, Map.Entry::getValue)
+        .containsExactly(a.getPublic(), plaintext);
   }
 
   @Test
