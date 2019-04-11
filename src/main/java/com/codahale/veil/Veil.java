@@ -86,7 +86,7 @@ public class Veil {
                 + padding
                 + AEAD.OVERHEAD);
 
-    // create a list of real and fake recipients, shuffled with a SecureRandom
+    // calculate where the message will end up in the ciphertext
     var messageOffset = (fakes + publicKeys.size()) * (Header.LEN + AEAD.OVERHEAD);
 
     // write headers
@@ -146,7 +146,8 @@ public class Veil {
     return Optional.of(plaintext);
   }
 
-  public Optional<Map.Entry<PublicKey, byte[]>> decrypt(List<PublicKey> publicKeys, byte[] ciphertext) {
+  public Optional<Map.Entry<PublicKey, byte[]>> decrypt(
+      List<PublicKey> publicKeys, byte[] ciphertext) {
     for (PublicKey publicKey : publicKeys) {
       var plaintext = decrypt(publicKey, ciphertext);
       if (plaintext.isPresent()) {
@@ -156,7 +157,8 @@ public class Veil {
     return Optional.empty();
   }
 
-    private List<PublicKey> addFakes(List<PublicKey> publicKeys, int fakes) {
+  // create a list of real and fake recipients, shuffled with a SecureRandom
+  private List<PublicKey> addFakes(List<PublicKey> publicKeys, int fakes) {
     var withFakes = new ArrayList<>(publicKeys);
     for (int i = 0; i < fakes; i++) {
       withFakes.add(null);
