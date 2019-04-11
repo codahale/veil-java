@@ -26,6 +26,9 @@ class AEAD {
   private static final String ENC_KEY_ALG = "AES";
 
   static byte[] encrypt(byte[] key, byte[] plaintext, byte[] data) {
+    if (data == null) {
+      data = new byte[0];
+    }
     try {
       // preallocate the output
       var out = new byte[NONCE_LEN + plaintext.length + MAC_LEN];
@@ -61,6 +64,9 @@ class AEAD {
   }
 
   static byte[] decrypt(byte[] key, byte[] ciphertext, byte[] data) {
+    if (data == null) {
+      data = new byte[0];
+    }
     try {
       // derive subkeys from key
       var encKey = Arrays.copyOf(key, 32);

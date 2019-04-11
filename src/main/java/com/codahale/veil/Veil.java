@@ -67,8 +67,7 @@ public class Veil {
     }
   }
 
-  public byte[] encrypt(
-      List<PublicKey> publicKeys, byte[] plaintext, int padding, int fakeRecipients) {
+  public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding, int fakes) {
     // generate a random session key
     var sessionKey = random(AEAD.KEY_LEN);
 
@@ -87,10 +86,10 @@ public class Veil {
                 + AEAD.OVERHEAD);
 
     // create a list of real and fake recipients, shuffled with a SecureRandom
-    var messageOffset = (fakeRecipients + publicKeys.size()) * (Header.LEN + AEAD.OVERHEAD);
+    var messageOffset = (fakes + publicKeys.size()) * (Header.LEN + AEAD.OVERHEAD);
 
     // write headers
-    for (var publicKey : addFakes(publicKeys, fakeRecipients)) {
+    for (var publicKey : addFakes(publicKeys, fakes)) {
       if (publicKey == null) {
         // just write a random header-length block for fake recipients
         out.write(random(Header.LEN + AEAD.OVERHEAD));
@@ -98,7 +97,7 @@ public class Veil {
         // generate, encrypt, and write header
         var sharedKey = ECDH.sharedSecret(privateKey, publicKey);
         var packet = new Header(sessionKey, messageOffset, plaintext.length, digest);
-        out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), new byte[0]));
+        out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), null));
       }
     }
     var headers = out.toByteArray();
@@ -110,7 +109,7 @@ public class Veil {
     // encrypt with session key, using encrypted headers as data
     out.write(AEAD.encrypt(sessionKey, padded, headers));
 
-    // header packets + encrypted message
+    // headers + encrypted message
     return out.toByteArray();
   }
 
@@ -159,7 +158,7 @@ public class Veil {
     var buf = new byte[Header.LEN + AEAD.OVERHEAD];
     for (int i = 0; i < ciphertext.length - buf.length; i += buf.length) {
       System.arraycopy(ciphertext, i, buf, 0, buf.length);
-      var decrypted = AEAD.decrypt(key, buf, new byte[0]);
+      var decrypted = AEAD.decrypt(key, buf, null);
       if (decrypted != null) {
         return Header.parse(decrypted);
       }
@@ -175,8 +174,7 @@ public class Veil {
 
   private static byte[] digest(byte[] message) {
     try {
-      var digest = MessageDigest.getInstance(DIGEST_ALG);
-      return digest.digest(message);
+      return MessageDigest.getInstance(DIGEST_ALG).digest(message);
     } catch (NoSuchAlgorithmException e) {
       throw new UnsupportedOperationException(e);
     }
