@@ -1,35 +1,45 @@
+/*
+ * Copyright © 2017 Coda Hale (coda.hale@gmail.com)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.codahale.veil;
 
 import com.google.common.io.ByteStreams;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
-import java.security.spec.NamedParameterSpec;
 import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-class ECDH {
-
+class X448 {
   static final String DH_ALG = "X448";
   private static final byte[] KDF_INFO = "veil".getBytes(StandardCharsets.UTF_8);
 
   static KeyPair generate() {
     try {
       var generator = KeyPairGenerator.getInstance(DH_ALG);
-      generator.initialize(NamedParameterSpec.X448);
       return generator.generateKeyPair();
-    } catch (NoSuchAlgorithmException | InvalidAlgorithmParameterException e) {
+    } catch (NoSuchAlgorithmException e) {
       throw new UnsupportedOperationException(e);
     }
   }
 
   static byte[] sharedSecret(KeyPair keyPair, PublicKey publicKey, boolean sending) {
-
     try {
       // Calculate the X448 shared secret between the key pair's secret key and the given public
       // key. Per the security considerations of RFC 7748:
@@ -49,7 +59,6 @@ class ECDH {
       agreement.init(keyPair.getPrivate());
       agreement.doPhase(publicKey, true);
       var ikm = agreement.generateSecret();
-
 
       // Per security considerations of RFC 7748:
       //    Designers using these curves should be aware that for each public
@@ -93,8 +102,8 @@ class ECDH {
 
   private static byte[] hmac(byte[] key, byte[]... data) {
     try {
-      var mac = Mac.getInstance(AEAD.MAC_ALG);
-      mac.init(new SecretKeySpec(key, AEAD.MAC_ALG));
+      var mac = Mac.getInstance(EtM.MAC_ALG);
+      mac.init(new SecretKeySpec(key, EtM.MAC_ALG));
       for (byte[] datum : data) {
         mac.update(datum);
       }

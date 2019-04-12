@@ -45,13 +45,13 @@ public class Veil {
   }
 
   public static KeyPair generate() {
-    return ECDH.generate();
+    return X448.generate();
   }
 
   public static PrivateKey parsePrivateKey(byte[] pkcs8) throws InvalidKeySpecException {
     try {
-      var spec = new PKCS8EncodedKeySpec(pkcs8, ECDH.DH_ALG);
-      var factory = KeyFactory.getInstance(ECDH.DH_ALG);
+      var spec = new PKCS8EncodedKeySpec(pkcs8, X448.DH_ALG);
+      var factory = KeyFactory.getInstance(X448.DH_ALG);
       return factory.generatePrivate(spec);
     } catch (NoSuchAlgorithmException e) {
       throw new UnsupportedOperationException(e);
@@ -60,8 +60,8 @@ public class Veil {
 
   public static PublicKey parsePublicKey(byte[] x509) throws InvalidKeySpecException {
     try {
-      var spec = new X509EncodedKeySpec(x509, ECDH.DH_ALG);
-      var factory = KeyFactory.getInstance(ECDH.DH_ALG);
+      var spec = new X509EncodedKeySpec(x509, X448.DH_ALG);
+      var factory = KeyFactory.getInstance(X448.DH_ALG);
       return factory.generatePublic(spec);
     } catch (NoSuchAlgorithmException e) {
       throw new UnsupportedOperationException(e);
@@ -70,7 +70,7 @@ public class Veil {
 
   public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding, int fakes) {
     // generate a random session key
-    var sessionKey = random(AEAD.KEY_LEN);
+    var sessionKey = random(EtM.KEY_LEN);
 
     // generate random padding
     var pad = random(padding);
@@ -81,24 +81,24 @@ public class Veil {
     // create output buffer
     var out =
         ByteStreams.newDataOutput(
-            publicKeys.size() * (Header.LEN + AEAD.OVERHEAD)
+            publicKeys.size() * (Header.LEN + EtM.OVERHEAD)
                 + plaintext.length
                 + padding
-                + AEAD.OVERHEAD);
+                + EtM.OVERHEAD);
 
     // calculate where the message will end up in the ciphertext
-    var messageOffset = (fakes + publicKeys.size()) * (Header.LEN + AEAD.OVERHEAD);
+    var messageOffset = (fakes + publicKeys.size()) * (Header.LEN + EtM.OVERHEAD);
 
     // write headers
     for (var publicKey : addFakes(publicKeys, fakes)) {
       if (publicKey == null) {
         // just write a random header-length block for fake recipients
-        out.write(random(Header.LEN + AEAD.OVERHEAD));
+        out.write(random(Header.LEN + EtM.OVERHEAD));
       } else {
         // generate, encrypt, and write header
-        var sharedKey = ECDH.sharedSecret(keyPair, publicKey, true);
+        var sharedKey = X448.sharedSecret(keyPair, publicKey, true);
         var packet = new Header(sessionKey, messageOffset, plaintext.length, digest);
-        out.write(AEAD.encrypt(sharedKey, packet.toByteArray(), null));
+        out.write(EtM.encrypt(sharedKey, packet.toByteArray(), null));
       }
     }
     var headers = out.toByteArray();
@@ -108,7 +108,7 @@ public class Veil {
     System.arraycopy(pad, 0, padded, plaintext.length, pad.length);
 
     // encrypt with session key, using encrypted headers as data
-    out.write(AEAD.encrypt(sessionKey, padded, headers));
+    out.write(EtM.encrypt(sessionKey, padded, headers));
 
     // headers + encrypted message
     return out.toByteArray();
@@ -116,7 +116,7 @@ public class Veil {
 
   public Optional<byte[]> decrypt(PublicKey publicKey, byte[] ciphertext) {
     // generate shared secret
-    var sharedKey = ECDH.sharedSecret(keyPair, publicKey, false);
+    var sharedKey = X448.sharedSecret(keyPair, publicKey, false);
 
     // iterate through headers looking for one we can decrypt
     var header = findHeader(sharedKey, ciphertext);
@@ -129,7 +129,7 @@ public class Veil {
     var encrypted = Arrays.copyOfRange(ciphertext, headers.length, ciphertext.length);
 
     // decrypt message using encrypted headers as authenticated data
-    var padded = AEAD.decrypt(header.sessionKey(), encrypted, headers);
+    var padded = EtM.decrypt(header.sessionKey(), encrypted, headers);
     if (padded == null) {
       return Optional.empty();
     }
@@ -168,10 +168,10 @@ public class Veil {
   }
 
   private Header findHeader(byte[] key, byte[] ciphertext) {
-    var buf = new byte[Header.LEN + AEAD.OVERHEAD];
+    var buf = new byte[Header.LEN + EtM.OVERHEAD];
     for (int i = 0; i < ciphertext.length - buf.length; i += buf.length) {
       System.arraycopy(ciphertext, i, buf, 0, buf.length);
-      var decrypted = AEAD.decrypt(key, buf, null);
+      var decrypted = EtM.decrypt(key, buf, null);
       if (decrypted != null) {
         return Header.parse(decrypted);
       }

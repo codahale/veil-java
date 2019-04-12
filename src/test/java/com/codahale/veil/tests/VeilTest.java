@@ -15,7 +15,7 @@
  */
 package com.codahale.veil.tests;
 
-import static com.codahale.veil.AEADTest.corrupt;
+import static com.codahale.veil.EtMTest.corrupt;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.codahale.veil.Veil;
