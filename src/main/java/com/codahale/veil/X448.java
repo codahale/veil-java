@@ -17,6 +17,7 @@ package com.codahale.veil;
 
 import com.google.common.io.ByteStreams;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -89,26 +90,23 @@ class X448 {
   }
 
   // an incredibly stripped-down implementation of HKDF per 5869, generating exactly 64 bytes of key
-  private static byte[] hkdf(byte[] ikm, byte[] salt) {
-    var prk = hmac(salt, ikm);
-    var t = new byte[0];
-    var okm = ByteStreams.newDataOutput();
-    for (int i = 0; i < 2; i++) { // only two rounds required for 64 bytes of output
-      t = hmac(prk, t, KDF_INFO, new byte[(byte) i]);
-      okm.write(t);
-    }
-    return okm.toByteArray();
-  }
-
-  private static byte[] hmac(byte[] key, byte[]... data) {
+  static byte[] hkdf(byte[] ikm, byte[] salt) {
     try {
       var mac = Mac.getInstance(EtM.MAC_ALG);
-      mac.init(new SecretKeySpec(key, EtM.MAC_ALG));
-      for (byte[] datum : data) {
-        mac.update(datum);
+      mac.init(new SecretKeySpec(salt, EtM.MAC_ALG));
+      var prk = mac.doFinal(ikm);
+      var okm = ByteStreams.newDataOutput();
+      mac.init(new SecretKeySpec(prk, EtM.MAC_ALG));
+      var digest = new byte[0];
+      for (int i = 1; i <= 2; i++) {
+        mac.update(digest);
+        mac.update(KDF_INFO);
+        mac.update((byte) i);
+        digest = mac.doFinal();
+        okm.write(digest);
       }
-      return mac.doFinal();
-    } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+      return okm.toByteArray();
+    } catch (GeneralSecurityException e) {
       throw new UnsupportedOperationException(e);
     }
   }

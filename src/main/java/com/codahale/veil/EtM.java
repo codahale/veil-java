@@ -33,10 +33,10 @@ import javax.crypto.spec.SecretKeySpec;
 class EtM {
 
   static final int KEY_LEN = 64;
+  static final String MAC_ALG = "HmacSHA512/256";
   private static final int NONCE_LEN = 16;
   private static final int MAC_LEN = 32;
   static final int OVERHEAD = NONCE_LEN + MAC_LEN;
-  static final String MAC_ALG = "HmacSHA512/256";
   private static final String ENC_ALG = "AES/CTR/NoPadding";
   private static final String ENC_KEY_ALG = "AES";
 

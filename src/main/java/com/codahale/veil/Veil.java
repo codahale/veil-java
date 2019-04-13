@@ -68,6 +68,20 @@ public class Veil {
     }
   }
 
+  static byte[] random(int size) {
+    var buf = new byte[size];
+    RANDOM.nextBytes(buf);
+    return buf;
+  }
+
+  private static byte[] digest(byte[] message) {
+    try {
+      return MessageDigest.getInstance(DIGEST_ALG).digest(message);
+    } catch (NoSuchAlgorithmException e) {
+      throw new UnsupportedOperationException(e);
+    }
+  }
+
   public byte[] encrypt(List<PublicKey> publicKeys, byte[] plaintext, int padding, int fakes) {
     // generate a random session key
     var sessionKey = random(EtM.KEY_LEN);
@@ -177,19 +191,5 @@ public class Veil {
       }
     }
     return null;
-  }
-
-  static byte[] random(int size) {
-    var buf = new byte[size];
-    RANDOM.nextBytes(buf);
-    return buf;
-  }
-
-  private static byte[] digest(byte[] message) {
-    try {
-      return MessageDigest.getInstance(DIGEST_ALG).digest(message);
-    } catch (NoSuchAlgorithmException e) {
-      throw new UnsupportedOperationException(e);
-    }
   }
 }
