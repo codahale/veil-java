@@ -111,8 +111,8 @@ public class Veil {
       } else {
         // generate, encrypt, and write header
         var sharedKey = X448.sharedSecret(keyPair, publicKey, true);
-        var packet = new Header(sessionKey, messageOffset, plaintext.length, digest);
-        out.write(EtM.encrypt(sharedKey, packet.toByteArray(), null));
+        var header = new Header(sessionKey, messageOffset, plaintext.length, digest);
+        out.write(EtM.encrypt(sharedKey, header.toByteArray(), null));
       }
     }
     var headers = out.toByteArray();
@@ -182,6 +182,7 @@ public class Veil {
   }
 
   private Header findHeader(byte[] key, byte[] ciphertext) {
+    var in = ByteStreams.newDataInput(ciphertext);
     var buf = new byte[Header.LEN + EtM.OVERHEAD];
     for (int i = 0; i < ciphertext.length - buf.length; i += buf.length) {
       System.arraycopy(ciphertext, i, buf, 0, buf.length);
