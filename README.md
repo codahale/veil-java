@@ -6,17 +6,17 @@ _Stupid crypto tricks._
 
 ## What is Veil?
 
-Veil is an experiment with building a format for confidential, authentic multi-recipient messages
-which are indistinguishable from random noise by an attacker. Unlike e.g. GPG messages, Veil
-messages contain no metadata or format details which are not encrypted. As a result, a global
-passive adversary would be unable to gain any information from a Veil message beyond traffic
-analysis. Messages can be padded with random bytes to disguise their true length, and fake 
-recipients can be added to disguise their true number from other recipients.
+Veil is an incredibly experimental hybrid cryptosystem for sending and receiving confidential,
+authentic multi-recipient messages which are indistinguishable from random noise by an attacker.
+Unlike e.g. GPG messages, Veil messages contain no metadata or format details which are not
+encrypted. As a result, a global passive adversary would be unable to gain any information from a
+Veil message beyond traffic analysis. Messages can be padded with random bytes to disguise their
+true length, and fake recipients can be added to disguise their true number from other recipients.
 
 ## Algorithms & Constructions
  
-Veil uses AES-256-CTR for confidentiality, HMAC-SHA-512/256 for authentication, X448 for key
-agreement, HKDF-SHA-512/256 for key derivation, and SHA-512/256 for integrity.
+Veil uses AES-256-CTR for confidentiality, HMAC-SHA-512/256 for authentication, X448 and
+HKDF-SHA-512/256 for key encapsulation, and SHA-512/256 for integrity.
 
 * AES-256-CTR is well-studied and requires no padding. It is vulnerable to nonce misuse, but a 
   reliable source of random data is a design requirement for Veil.
@@ -25,21 +25,21 @@ agreement, HKDF-SHA-512/256 for key derivation, and SHA-512/256 for integrity.
 * HMAC is very well-studied and, unlike polynomial authenticators like GHASH or Poly1305, its output
   is not biased if the underlying hash algorithm is not biased. It is also not subject to nonce
   misuse.
-* HKDF is well-studied, fast, and based on HMAC and SHA-512/256.
 * X448 is a [safe curve](https://safecurves.cr.yp.to) and provides ~224-bit security, which roughly
   maps to the security levels of the other algorithms and constructions.
+* HKDF is well-studied, fast, and based on HMAC and SHA-512/256.
   
 Finally, all of the algorithms here (with the exception of HKDF) are available in the Java 12 
 standard library.
 
-### Key Agreement
+### Key Encapsulation
 
 Shared secrets are generated using X448 ECDH, then HKDF-SHA-512/256 is used to derive a 64-byte key.
 The sender and recipient's public keys are encoded as X.509 public keys, concatenated, and used as
 the salt for HKDF. The static value `{0x76, 0x65, 0x69, 0x6C}` is used as the information input for
 HKDF. As a result, the derived key is unique to the two parties using Veil.
 
-### Encrypt-then-Mac AEAD
+### Data Encapsulation
 
 A 64-byte key is split into subkeys: the first 32 bytes as used as the AES key; the second 32 bytes
 are used as the HMAC key. The plaintext is encrypted with AES-256-CTR using a random, 16-byte nonce.
