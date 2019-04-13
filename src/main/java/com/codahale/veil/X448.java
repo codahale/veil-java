@@ -44,7 +44,8 @@ class X448 {
     try {
       // Calculate the X448 shared secret between the key pair's secret key and the given public
       // key. Per the security considerations of RFC 7748:
-      //    Protocol designers using Diffie-Hellman over the curves defined in
+      //
+      //   Protocol designers using Diffie-Hellman over the curves defined in
       //   this document must not assume "contributory behaviour".  Specially,
       //   contributory behaviour means that both parties' private keys
       //   contribute to the resulting shared key.  Since curve25519 and
@@ -62,6 +63,7 @@ class X448 {
       var ikm = agreement.generateSecret();
 
       // Per security considerations of RFC 7748:
+      //
       //    Designers using these curves should be aware that for each public
       //    key, there are several publicly computable public keys that are
       //    equivalent to it, i.e., they produce the same shared secrets.  Thus
