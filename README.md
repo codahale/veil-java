@@ -1,4 +1,8 @@
-# veil
+# veil-java
+
+N.B.: I stopped working on this b/c the lack of Elligator-like encodings for the JCE EC points means
+you can't implement a KEM with ephemeral keys w/o including distinguishable EC points. I moved this
+work to Go [over here](https://github.com/codahale/veil).
 
 _Stupid crypto tricks._
 
@@ -74,9 +78,8 @@ recovered plaintext is compared to the digest contained in the header.
    break SHA2).
 2. Veil messages are tamper-proof. If a single bit of the entire message is changed, all of the
    recipients will know.
-3. Veil messages are non-repudiable.
-4. Veil messages are indistinguishable from random noise, revealing no metadata about recipients'
+3. Veil messages are indistinguishable from random noise, revealing no metadata about recipients'
    identities, number of recipients, etc.
-5. Veil messages can be padded, obscuring a message's actual length.
-6. The number of recipients in a Veil message can be obscured from recipients by adding blocks of 
+4. Veil messages can be padded, obscuring a message's actual length.
+5. The number of recipients in a Veil message can be obscured from recipients by adding blocks of 
    random noise instead of encrypted headers.
